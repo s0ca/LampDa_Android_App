@@ -47,6 +47,20 @@ This is an unofficial companion project. Lamp-Da firmware is maintained separate
 by [BaptisteHudyma](https://github.com/BaptisteHudyma/Lamp-Da).
 Product names and artwork do not imply endorsement.
 
-This local repository is a source snapshot, not the history of the firmware
-workspace. Nothing has been published. Licensing and release signing must be
-reviewed before distribution; see [publication checklist](PUBLISHING.md).
+This repository contains the Android application, not the firmware workspace
+history. Release signing and physical hardware coverage must be reviewed before
+distributing production APKs.
+
+## License
+
+Original application code is Copyright (c) 2026 s0ca and licensed under the
+[MIT License](LICENSE). Keep the copyright and license notice when redistributing
+copies or substantial portions of the code.
+
+Dependencies retain their own licenses. See the
+[third-party notices](licenses/THIRD_PARTY_NOTICES.txt) and bundled license texts
+in `licenses/`, which are also packaged as APK assets. Gradle's distribution
+license and notices are retained in `tools/legal/`.
+
+The code license does not grant rights to third-party trademarks or artwork.
+Product-inspired branding requires separate review and implies no endorsement.

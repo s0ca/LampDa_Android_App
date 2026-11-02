@@ -1,0 +1,77 @@
+Lamp-Da Android - Third-party notices
+Review date: 2026-11-02
+
+The application's original code is Copyright (c) 2026 s0ca, MIT licensed.
+Its MIT license does not replace the licenses of third-party components.
+The following notices and license texts are included in the source repository
+and packaged as APK assets. Preserve applicable upstream notices when updating
+dependencies. This is a dependency-family inventory, not an exhaustive legal
+certification of every upstream source file or native subcomponent.
+
+Runtime dependencies
+--------------------
+
+usb-serial-for-android 3.8.1
+Copyright (c) 2011-2013 Google Inc.
+Copyright (c) 2013 Mike Wakerly
+License: MIT; see usb-serial-for-android-MIT.txt.
+Source and version-specific license:
+https://github.com/mik3y/usb-serial-for-android/tree/v3.8.1
+https://github.com/mik3y/usb-serial-for-android/blob/v3.8.1/LICENSE.txt
+
+AndroidX / Jetpack Compose
+Copyright the Android Open Source Project and respective contributors.
+License: Apache License 2.0 for the main libraries; see Apache-2.0.txt.
+Includes Activity, Annotation, Arch Core, Autofill, Collection, Compose Animation,
+Foundation, Material, Material3, Material Icons, Runtime, UI, Concurrent, Core,
+CustomView, DocumentFile, Emoji2, Graphics Path, Interpolator, Lifecycle,
+ProfileInstaller, SavedState, Startup, Tracing and VersionedParcelable.
+https://github.com/androidx/androidx
+https://github.com/androidx/androidx/blob/androidx-main/LICENSE.txt
+Check upstream component-specific notices, including native graphics code,
+before claiming a complete binary-distribution compliance review.
+
+Kotlin standard library 1.9.25 (JDK compatibility modules 1.8.20)
+Copyright JetBrains and respective contributors.
+License: Apache License 2.0; see Apache-2.0.txt.
+https://github.com/JetBrains/kotlin/blob/v1.9.25/license/LICENSE.txt
+
+kotlinx.coroutines 1.7.3
+Copyright JetBrains and respective contributors.
+License: Apache License 2.0; see Apache-2.0.txt.
+https://github.com/Kotlin/kotlinx.coroutines/blob/1.7.3/LICENSE.txt
+
+JetBrains Java annotations 23.0.0
+Copyright JetBrains and respective contributors.
+License: Apache License 2.0; see Apache-2.0.txt.
+https://github.com/JetBrains/java-annotations/blob/23.0.0/LICENSE.txt
+
+Guava ListenableFuture 1.0
+Copyright Google and respective contributors.
+License: Apache License 2.0; see Apache-2.0.txt.
+https://github.com/google/guava
+
+Build and test tooling (not application runtime)
+----------------------------------------------
+
+Gradle wrapper 9.3.0 and startup scripts retain their upstream copyright and
+Apache-2.0 headers. The Gradle distribution includes components under other
+licenses. Its unmodified LICENSE and NOTICE are retained under tools/legal/.
+https://github.com/gradle/gradle/tree/v9.3.0
+
+JUnit 4.13.2 is used for unit tests only, under Eclipse Public License 1.0.
+JUnit and its Hamcrest test dependency are not shipped as app runtime libraries.
+https://github.com/junit-team/junit4/blob/r4.13.2/LICENSE-junit.txt
+
+Separate projects and artwork
+-----------------------------
+
+Lamp-Da firmware is a separate project and is not included in this repository
+or APK. Its code and license are not relicensed by this application's MIT file.
+https://github.com/BaptisteHudyma/Lamp-Da
+
+The product-inspired launcher image was AI-generated from user-supplied photos.
+The simplified lambda mark is not a claim to the official Lamp-Da logo.
+No trademark rights, third-party artwork rights or endorsement are granted by
+the application's MIT license. The Half-Life theme is a color palette, not
+official Valve artwork. Verify branding permissions separately.

@@ -39,6 +39,8 @@ signing.properties
 #other files to ignore
 PUBLISHING.md
 tools/*
+!tools/legal/
+!tools/legal/**
 docs/CHANGELOG-2026-11-01.md
 docs/CHANGELOG-2026-11-02.md
 assets/branding/README.md

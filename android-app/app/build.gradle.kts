@@ -29,6 +29,8 @@ android {
         buildConfig = true
     }
 
+    sourceSets.getByName("main").assets.srcDir("../../licenses")
+
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.15"
     }
