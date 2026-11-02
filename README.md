@@ -29,68 +29,12 @@ The debug APK is produced at `android-app/app/build/outputs/apk/debug/app-debug.
 Initial builds require Internet access to download Gradle and dependencies.
 No firmware binaries, SDK paths, signing keys, Gradle caches or APKs are included.
 
-## Automatic APK Builds
+## Download
 
-The **Android APK** GitHub Actions workflow runs for pushes to `main`, pull
-requests targeting `main`, and manual runs from the Actions tab. It runs unit
-tests and lint before producing a debug APK, with no repository signing secrets.
+Download the latest signed APK from [GitHub Releases](https://github.com/s0ca/LampDa_Android_App/releases).
 
-After a successful run, open **Actions > Android APK > the run > Artifacts** and
-download `LampDa-debug-<commit>`. Extract the archive to obtain the APK and its
-SHA-256 checksum. Artifacts are retained for 14 days, subject to repository policy;
-they are not GitHub Releases. Test and lint reports are uploaded separately,
-including when a build step fails and reports are available.
-
-These are testing builds. A fresh GitHub runner generates a temporary debug key,
-which can differ between runs and from your locally installed app. Android will
-reject an in-place update signed by another key. Do not uninstall an existing
-app merely to resolve this without backing up its data. Stable production updates
-require a dedicated, securely backed-up signing key and a separate release setup.
-Do not commit signing keys or passwords to this repository.
-
-## Signed GitHub Releases
-
-The **Signed release APK** workflow runs only when a `v*` tag is pushed. It tests
-and lints the release variant, builds an unsigned release APK, and signs it using
-repository Actions secrets. The app's Gradle configuration does not contain keys
-or passwords. Signing secrets are exposed only to the signing step, not Gradle.
-
-Configure these repository secrets first:
-
-| Secret | Value |
-| --- | --- |
-| `KEYSTORE_BASE64` | Base64-encoded private release keystore |
-| `KEYSTORE_PASSWORD` | Keystore password |
-| `KEY_ALIAS` | Signing key alias, for example `lampda` |
-| `KEY_PASSWORD` | Key password |
-
-Before tagging, update `versionName` and increase `versionCode` in
-`android-app/app/build.gradle.kts`, then commit and push. The tag must exactly
-match `v` followed by `versionName`, for example `v0.3.10`. Prerelease versions
-such as `0.3.10-beta.1` must also match their tag. Do not reuse or move release tags.
-
-```sh
-git tag v0.3.10
-git push origin v0.3.10
-```
-
-Only use that example after setting `versionName` to `0.3.10`. The workflow rejects
-mismatches. It verifies the APK signature against the configured key certificate,
-rejects debuggable APKs, and computes a SHA-256 checksum. A separate job then
-creates a **draft** Release containing the signed APK, checksum and public signing
-certificate report. Review the generated notes and publish manually in Releases.
-Tags containing a prerelease suffix produce prerelease drafts. An existing Release
-is not overwritten automatically; review an existing draft before rerunning.
-
-Never commit the keystore or its Base64 representation. Back up the private key
-and password securely outside the repository. The signing step deletes its
-temporary keystore on exit. Only the draft-creation job gets repository write
-permission; no source code is checked out or built in that job. No release signing
-secrets are used by the debug/PR workflow.
-
-The release key differs from a local debug key: existing debug installs may need
-a one-time migration, with possible loss of app settings. Subsequent releases
-must retain the same signing identity and increase `versionCode` to update in place.
+Development builds are available in GitHub Actions artifacts. They are intended
+for testing and may not update an existing installation.
 
 ## Known Limitations
 

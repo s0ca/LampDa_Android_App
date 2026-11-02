@@ -39,6 +39,7 @@ signing.properties
 
 #other files to ignore
 PUBLISHING.md
+/MAINTENANCE.local.md
 tools/*
 !tools/legal/
 !tools/legal/**
