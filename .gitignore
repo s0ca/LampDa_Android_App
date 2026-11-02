@@ -1,0 +1,44 @@
+# Android / Gradle generated files and machine-specific configuration
+**/build/
+.gradle/
+**/.gradle/
+.kotlin/
+**/.kotlin/
+.idea/
+**/.idea/
+*.iml
+local.properties
+**/local.properties
+.DS_Store
+*.log
+
+# Distribution files belong in Releases, not source control
+*.apk
+*.aab
+*.apks
+*.uf2
+*.hex
+*.bin
+
+# Signing material and credentials must be backed up separately
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+keystore.properties
+signing.properties
+.env
+.env.*
+!.env.example
+
+# The Gradle wrapper JAR is deliberately included
+
+
+#other files to ignore
+PUBLISHING.md
+tools/*
+docs/CHANGELOG-2026-11-01.md
+docs/CHANGELOG-2026-11-02.md
+assets/branding/README.md

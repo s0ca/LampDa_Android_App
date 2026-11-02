@@ -1,0 +1,216 @@
+package com.lampda.app
+
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.hardware.usb.UsbManager
+import android.os.Build
+import android.os.Bundle
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModelProvider
+
+class FirmwareUpdateActivity : ComponentActivity() {
+    private lateinit var model: UsbFirmwareUpdate
+    private val permissionAction get() = "$packageName.USB_FIRMWARE_PERMISSION"
+    private val permissionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != permissionAction) return
+            model.permissionResult()
+        }
+    }
+    private val deviceReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            model.refreshUsb()
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        model = ViewModelProvider(this)[UsbFirmwareUpdate::class.java]
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(permissionReceiver, IntentFilter(permissionAction), RECEIVER_NOT_EXPORTED)
+        else @Suppress("DEPRECATION") registerReceiver(permissionReceiver, IntentFilter(permissionAction))
+        val devices = IntentFilter(UsbManager.ACTION_USB_DEVICE_ATTACHED).apply {
+            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        }
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(deviceReceiver, devices, RECEIVER_NOT_EXPORTED)
+        else @Suppress("DEPRECATION") registerReceiver(deviceReceiver, devices)
+        setContent {
+            AppThemeHost {
+                DisposableEffect(model.busy) {
+                    if (model.busy) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+                }
+                BackHandler(model.busy) { }
+                FirmwareUpdateScreen(model, ::identify, ::finish)
+            }
+        }
+    }
+
+    private fun identify() {
+        try {
+            val device = model.runtimeDevice() ?: return
+            if (model.hasPermission(device)) model.identify(device)
+            else {
+                model.requestingPermission(device)
+                getSystemService(UsbManager::class.java).requestPermission(device,
+                    PendingIntent.getBroadcast(this, 0, Intent(permissionAction).setPackage(packageName),
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            }
+        } catch (error: Exception) { model.fail(error.message ?: "USB operation failed.") }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        model.refreshUsb()
+    }
+
+    override fun onDestroy() {
+        unregisterReceiver(permissionReceiver)
+        unregisterReceiver(deviceReceiver)
+        super.onDestroy()
+    }
+}
+
+@Composable
+private fun usbLabel(english: String, french: String) =
+    if (LocalAppLanguage.current == AppLanguage.French) french else english
+
+@Composable
+private fun FirmwareUpdateScreen(model: UsbFirmwareUpdate, identify: () -> Unit, close: () -> Unit) {
+    var confirmDfu by remember { mutableStateOf(false) }
+    var confirmCopy by remember { mutableStateOf(false) }
+    var correctVariant by remember(model.firmware) { mutableStateOf(false) }
+    var bootType by remember(model.volume) { mutableStateOf<LampType?>(null) }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) model.selectFile(uri)
+    }
+    val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) model.selectVolume(uri)
+    }
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 32.dp)
+        .verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(usbLabel("USB Update", "Mise à jour USB"), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+            OutlinedButton(onClick = close, enabled = !model.busy) { AppText("Done") }
+        }
+        Text(usbLabel("Experimental · Local UF2", "Expérimental · UF2 local"), color = MaterialTheme.colorScheme.tertiary)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(usbLabel("USB detection", "Détection USB"), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            OutlinedButton(onClick = model::refreshUsb, enabled = !model.busy) { AppText("Refresh") }
+        }
+        val detectionText = when {
+            !model.hostSupported -> usbLabel("USB host is not available.", "Le mode hôte USB est indisponible.")
+            model.detection == UsbDetection.Empty -> usbLabel("Android detects no USB device.", "Android ne détecte aucun périphérique USB.")
+            model.detection == UsbDetection.Runtime -> usbLabel("Lamp-Da USB detected", "Lamp-Da détectée en USB")
+            model.detection == UsbDetection.Bootloader -> usbLabel("Lamp-Da bootloader detected", "Bootloader Lamp-Da détecté")
+            model.detection == UsbDetection.MultipleLamps -> usbLabel("Multiple lamps detected", "Plusieurs lampes détectées")
+            else -> usbLabel("Other USB device detected", "Autre périphérique USB détecté")
+        }
+        Text(detectionText, color = MaterialTheme.colorScheme.tertiary)
+        if (model.usbInventory.isNotBlank()) SelectionContainer {
+            Text(model.usbInventory, style = MaterialTheme.typography.bodySmall)
+        }
+        AppText(model.status, color = MaterialTheme.colorScheme.tertiary)
+        Button(onClick = { filePicker.launch(arrayOf("*/*")) }, enabled = !model.busy) {
+            Text(usbLabel("Select UF2 file", "Choisir le fichier UF2"))
+        }
+        model.firmware?.let { selected ->
+            Text(selected.name, style = MaterialTheme.typography.titleMedium)
+            Text("${selected.metadata.variant} · ${selected.bytes.size / 1024} KiB")
+            SelectionContainer { Text("SHA-256\n${selected.metadata.sha256}", style = MaterialTheme.typography.bodySmall) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(correctVariant, { correctVariant = it }, enabled = !model.busy)
+                Text(usbLabel("I checked the source, lamp model and firmware variant.",
+                    "J’ai vérifié la provenance, le modèle de lampe et la variante du firmware."), Modifier.weight(1f))
+            }
+        }
+        OutlinedButton(onClick = identify, enabled = !model.busy && model.detection == UsbDetection.Runtime) {
+            Text(usbLabel("Read lamp type / version over USB", "Lire le type / la version par USB"))
+        }
+        Button(onClick = { confirmDfu = true }, enabled = !model.busy && correctVariant && model.detection == UsbDetection.Runtime &&
+            model.firmware != null && model.lampType == model.firmware?.metadata?.variant && !model.copyAttempted) {
+            Text(usbLabel("Enter USB DFU", "Passer en DFU USB"))
+        }
+        OutlinedButton(onClick = { treePicker.launch(null) }, enabled = !model.busy && correctVariant && model.firmware != null && !model.copyAttempted) {
+            Text(usbLabel("Select USB bootloader root", "Choisir la racine USB du bootloader"))
+        }
+        model.volume?.let { Text(it.name) }
+        if (model.volume != null && model.updateLampType == null) {
+            Text(usbLabel(
+                "The bootloader cannot report Simple / RGB. Confirm the physical lamp type; this is not automatic detection.",
+                "Le bootloader ne fournit pas le type Simple / RGB. Confirmer le type physique de la lampe ; ce choix n’est pas une détection automatique."),
+                color = MaterialTheme.colorScheme.tertiary)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LampType.entries.forEach { type ->
+                    FilterChip(selected = bootType == type, onClick = { bootType = type },
+                        enabled = !model.busy, label = { AppText(type.label) })
+                }
+            }
+            OutlinedButton(onClick = { bootType?.let(model::confirmBootloaderType) }, enabled = !model.busy && correctVariant && bootType != null) {
+                Text(usbLabel("Confirm lamp type", "Confirmer le type de lampe"))
+            }
+        }
+        val installBlocker = usbInstallBlocker(model.busy, model.firmware?.metadata?.variant,
+            correctVariant, model.volume != null, model.updateLampType, model.copyAttempted)
+        Button(onClick = { confirmCopy = true }, enabled = installBlocker == null) {
+            Text(usbLabel("Install firmware", "Installer le firmware"))
+        }
+        if (installBlocker != null && !model.busy) AppText(installBlocker, style = MaterialTheme.typography.bodySmall)
+        if (model.busy) LinearProgressIndicator(progress = { model.progress }, modifier = Modifier.fillMaxWidth())
+        // Keep device diagnostics verbatim, as in the UART tab.
+        if (model.report.isNotBlank()) SelectionContainer { Text(model.report, style = MaterialTheme.typography.bodySmall) }
+    }
+    if (confirmDfu || confirmCopy) {
+        val copying = confirmCopy
+        AlertDialog(onDismissRequest = { confirmDfu = false; confirmCopy = false }, title = {
+            Text(usbLabel("Confirm firmware update", "Confirmer la mise à jour"))
+        }, text = {
+            Text(if (copying) usbLabel(
+                "Install this file on the selected lamp? Keep USB connected. Copy completion does not prove installation: read the version after reboot.",
+                "Installer ce fichier sur la lampe sélectionnée ? Garder l’USB branché. Après la copie, lire la version au redémarrage pour vérifier l’installation.")
+            else usbLabel(
+                "Enter update mode? The lamp will stop running. Only continue with a trusted application UF2 for this lamp. If Android cannot mount its USB volume, do not format it; finish the update on a computer.",
+                "Passer en mode mise à jour ? La lampe va s’arrêter. Continuer uniquement avec un UF2 fiable pour cette lampe. Si Android ne monte pas son volume USB, ne pas le formater : terminer sur ordinateur."))
+        }, confirmButton = {
+            Button(onClick = {
+                confirmDfu = false; confirmCopy = false
+                if (copying) model.copyFirmware() else model.enterDfu()
+            }) { Text(usbLabel("Confirm", "Confirmer")) }
+        }, dismissButton = {
+            OutlinedButton(onClick = { confirmDfu = false; confirmCopy = false }) { Text(usbLabel("Cancel", "Annuler")) }
+        })
+    }
+}
