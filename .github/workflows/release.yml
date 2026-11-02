@@ -1,0 +1,155 @@
+name: Signed release APK
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build, test and sign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: android-app
+    steps:
+      - name: Check out tagged sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Validate tag format
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]] || {
+            echo 'Expected a tag such as v0.3.10 or v0.3.10-beta.1.' >&2
+            exit 1
+          }
+
+      - name: Set up Java 21
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle and validate wrapper
+        uses: gradle/actions/setup-gradle@7ca78c16c887dc6c5f36fd6d0cb0f5c23d940e69 # v6
+        with:
+          cache-read-only: true
+
+      - name: Install Android SDK packages
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"'
+
+      - name: Test, lint and build unsigned release
+        run: >-
+          bash ./gradlew --no-daemon --no-configuration-cache --stacktrace
+          :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease
+
+      - name: Match application version to tag
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version=$(jq -er '.elements[0].versionName' app/build/outputs/apk/release/output-metadata.json)
+          [[ "$RELEASE_TAG" == "v$version" ]] || {
+            echo 'Tag does not match versionName in the compiled APK metadata.' >&2
+            exit 1
+          }
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Sign and verify release APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          : "${KEYSTORE_BASE64:?Missing KEYSTORE_BASE64 secret}"
+          : "${KEYSTORE_PASSWORD:?Missing KEYSTORE_PASSWORD secret}"
+          : "${KEY_ALIAS:?Missing KEY_ALIAS secret}"
+          : "${KEY_PASSWORD:?Missing KEY_PASSWORD secret}"
+          umask 077
+          keystore=$(mktemp "$RUNNER_TEMP/lampda-signing.XXXXXX")
+          trap 'rm -f "$keystore"' EXIT
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          mkdir -p ../dist
+          apk="../dist/LampDa-${APP_VERSION}.apk"
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          "$tools/apksigner" sign --ks "$keystore" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
+            --out "$apk" app/build/outputs/apk/release/app-release-unsigned.apk
+          "$tools/apksigner" verify --verbose --print-certs "$apk" > ../dist/signature.txt
+          expected=$(keytool -exportcert -keystore "$keystore" -alias "$KEY_ALIAS" \
+            -storepass:env KEYSTORE_PASSWORD | sha256sum | awk '{print $1}')
+          actual=$(awk '/Signer #1 certificate SHA-256 digest:/ {print $NF}' ../dist/signature.txt)
+          [[ "$expected" == "$actual" ]] || { echo 'Signing certificate mismatch.' >&2; exit 1; }
+          badging=$("$tools/aapt" dump badging "$apk")
+          if grep -q '^application-debuggable' <<< "$badging"; then
+            echo 'Refusing to release a debuggable APK.' >&2
+            exit 1
+          fi
+          cd ../dist
+          sha256sum "LampDa-${APP_VERSION}.apk" > SHA256SUMS.txt
+
+      - name: Upload verified release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: LampDa-release-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Upload test and lint reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: Release-reports-${{ github.sha }}
+          path: |
+            android-app/app/build/reports/tests/
+            android-app/app/build/reports/lint-results-release.*
+            android-app/app/build/test-results/testReleaseUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  draft:
+    name: Create draft release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: LampDa-release-${{ github.sha }}
+          path: dist
+
+      - name: Create draft with APK and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum --check SHA256SUMS.txt
+          options=(--draft --verify-tag --generate-notes --title "Lamp-Da $RELEASE_TAG")
+          if [[ "$RELEASE_TAG" == *-* ]]; then options+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" "${options[@]}" ./*.apk SHA256SUMS.txt signature.txt
+          printf 'Draft release created for **%s**. Review the notes and publish manually from Releases.\n' \
+            "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
