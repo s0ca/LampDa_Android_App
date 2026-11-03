@@ -73,11 +73,11 @@ private fun RgbColor.displayColor(): Color = Color(red / 255f, green / 255f, blu
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun RgbColorControls(color: RgbColor, onChange: (RgbColor) -> Unit, onCommit: (RgbColor) -> Unit,
-    expanded: Boolean, onToggle: () -> Unit) {
+    expanded: Boolean, onToggle: () -> Unit, error: String? = null) {
     val colorLabel = uiString("Color")
     var hex by remember { mutableStateOf(color.hex) }
     var draft by remember(color) { mutableStateOf(color) }
-    var wheelView by rememberSaveable { mutableStateOf(true) }
+    var wheelView by rememberSaveable(key = "rgb_wheel_secondary") { mutableStateOf(false) }
     LaunchedEffect(color) { hex = color.hex }
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -91,10 +91,11 @@ internal fun RgbColorControls(color: RgbColor, onChange: (RgbColor) -> Unit, onC
             }
             AppText(if (expanded) "Hide" else "Show", color = MaterialTheme.colorScheme.primary)
         }
+        error?.let { AppText(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
         if (expanded) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(wheelView, onClick = { wheelView = true }, label = { AppText("Color wheel") })
                 FilterChip(!wheelView, onClick = { wheelView = false }, label = { Text("RGB") })
+                FilterChip(wheelView, onClick = { wheelView = true }, label = { AppText("Color wheel") })
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(Modifier.size(48.dp).background(color.displayColor(), RoundedCornerShape(6.dp))

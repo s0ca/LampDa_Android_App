@@ -1,7 +1,7 @@
 # Lamp-Da Android
 
 Android companion application for Lamp-Da lamps running firmware v1.9.
-Current application version: **0.3.9**. Android 8.0 (API 26) or newer.
+Current application version: **0.3.10**. Android 8.0 (API 26) or newer.
 
 ## Features
 
@@ -41,8 +41,9 @@ for testing and may not update an existing installation.
 Controls represent requests, not synchronized physical-button state. RGB hardware
 coverage is incomplete. Long UART commands can fail over BLE with firmware that
 does not retain fragmented commands until the terminating newline; renaming over
-USB has been confirmed separately. BLE transport completion is not a firmware
-application acknowledgement.
+USB has been confirmed separately. Custom RGB controls avoid this issue by using
+a single 9-byte ELK color frame, including for pale colors. Other controls keep
+using UART. BLE transport completion is not a firmware application acknowledgement.
 
 USB flashing requires a compatible board, trusted application UF2, a working USB
 host connection and explicit confirmations. Never format the bootloader volume.

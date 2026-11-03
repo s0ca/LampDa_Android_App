@@ -1,5 +1,19 @@
 package com.lampda.app
 
+internal enum class UartLogFilter(val label: String) {
+    All("All"), Rx("RX"), Tx("TX");
+
+    fun includes(line: String): Boolean = when (this) {
+        All -> true
+        Rx -> line.startsWith("RX ")
+        Tx -> line.startsWith("TX ")
+    }
+
+    companion object {
+        fun fromStored(name: String?): UartLogFilter = entries.firstOrNull { it.name == name } ?: All
+    }
+}
+
 internal enum class UartCategory(val label: String) { General("General"), Sys("sys"), Set("set"), Act("act") }
 
 internal data class UartShortcut(val label: String, val command: String, val template: Boolean = false) {

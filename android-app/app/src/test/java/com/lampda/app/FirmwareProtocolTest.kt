@@ -59,6 +59,12 @@ class FirmwareProtocolTest {
         assertEquals("set ble_name My-Lamp-2", Firmware19.rename("My-Lamp-2"))
     }
 
+    @Test fun paleRgbColorsRetainAllThreeFullResolutionChannels() {
+        val line = Firmware19.color(RgbColor(229, 255, 217))
+        assertEquals("set color 229 255 217", line)
+        assertEquals(22, (line + "\n").toByteArray(Charsets.UTF_8).size)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun rejectsCommandInjectionInName() { Firmware19.rename("Lamp\nact dfu") }
 

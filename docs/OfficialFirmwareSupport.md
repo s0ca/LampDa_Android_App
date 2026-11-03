@@ -10,7 +10,13 @@ Write to `6e400002-b5a3-f393-e0a9-e50e24dcca9e`;
 subscribe to `6e400003-b5a3-f393-e0a9-e50e24dcca9e`.
 Each UTF-8 command ends in a newline. A serial operation queue splits writes into
 20-byte chunks, preserving command order at the default ATT MTU.
-ELK is not required for connection; its advertising UUID remains an internal scan hint.
+ELK is not required for connection. Custom RGB colors use the optional ELK
+service `0000fff0-0000-1000-8000-00805f9b34fb`, writable characteristic
+`0000fff3-0000-1000-8000-00805f9b34fb`. Each color is sent as one binary frame:
+`7E 00 05 03 RR GG BB 00 EF`, with full 0-255 RGB values and no UART newline.
+This applies to sliders, the wheel, swatches, HEX input and custom-color mode.
+The writes share the same serialized GATT queue as UART controls. Missing ELK
+support is reported in the color panel, without a UART color fallback.
 The scan list defaults to all BLE devices. Its Known lamps filter and badge use
 remembered addresses, not generic UUID/name matching. A new known address is saved
 only after a recognized lamp-type UART reply.
@@ -25,7 +31,7 @@ Standard Battery Service notifications remain enabled independently.
 | Brightness | `set brgt N`, integer 0-1024 |
 | Effect parameter | `set ramp N`, integer 0-255 |
 | Mode | `set mode GROUP MODE` |
-| RGB | `set color R G B`, each 0-255 |
+| RGB | GUI uses the ELK frame above; `set color R G B` remains available manually |
 | Clock | `set time H M S DAY`, Sunday = 0 |
 | Sunset | `set sunset H M S DAY` |
 | Recall RGB favorite | `set favorite INDEX`, 0-7 |

@@ -1,7 +1,8 @@
 # Lamp-Da Android
 
 Android controller for official Lamp-Da **v1.9**, Simple and RGB / Indexable.
-Control commands use Nordic UART exclusively; no ELK command frames or legacy CFW.
+Controls use official Nordic UART commands, except custom RGB colors, which use
+the firmware's compact ELK color frame. No legacy CFW is required.
 
 ## Controls
 
@@ -9,8 +10,11 @@ Control commands use Nordic UART exclusively; no ELK command frames or legacy CF
 - Six Simple modes; 54 RGB modes arranged by category.
 - Effect ramp (0-255), with mode-specific speed/palette/parameter labels.
 - Custom RGB channels, color swatches and hex input.
+  RGB sliders are shown first by default; the color wheel is an alternate view.
+  Both views send one 9-byte ELK color frame to avoid fragmented UART color lines.
 - Eight Indexable favorite slots: recall and save with overwrite confirmation.
-- Bluetooth rename (takes effect after lamp restart).
+- Bluetooth rename is temporarily disabled in Settings pending the firmware's
+  fragmented UART command fix. The field and button remain visibly disabled.
 - Sunset by duration or end time, phone clock synchronization and acknowledged countdown.
 - Sunrise can be attempted explicitly, with a firmware refusal reported when unavailable.
 - Standard BLE battery level in the header and optional advanced UART console; no status dashboard.
@@ -56,7 +60,10 @@ Scanning has no Android-level name/service filter. The default list shows all BL
 devices on first use, or Known lamps when lamps have already been remembered.
 Known lamps is the first filter. It uses remembered device addresses, not
 names or generic service UUIDs. Renaming therefore does not remove a known lamp.
-UART services are checked on connection; ELK is not required.
+UART services are checked on connection; ELK is not required to connect, but its
+writable color characteristic is required for custom RGB controls. If it is
+absent, the color panel reports an error rather than silently falling back to a
+fragmented UART command. Other controls remain available.
 New known-lamp addresses are saved only after a recognized UART lamp-type reply,
 not merely when a generic Nordic UART service is discovered.
 Names and identity are retained when later advertisements omit them. The displayed

@@ -209,11 +209,13 @@ private fun LampDaApp() {
         connected = controller.isConnected,
         isScanning = controller.isScanning,
         batteryLevel = controller.batteryLevel,
+        connectedLampName = controller.connectedLampName,
         uartLogs = controller.uartLogs,
         diagnosticCommands = controller.diagnosticCommands.toSet(),
         selectedMode = controller.selectedMode,
         lampType = controller.lampType,
         rgbColor = controller.rgbColor,
+        colorError = controller.colorError,
         onLampType = { controller.chooseLampType(it) },
         onColor = { controller.sendColor(it) },
         onColorCommit = { controller.sendColor(it, commit = true) },
@@ -251,11 +253,13 @@ private fun LampScreen(
     connected: Boolean,
     isScanning: Boolean,
     batteryLevel: Int?,
+    connectedLampName: String?,
     uartLogs: List<String>,
     diagnosticCommands: Set<String>,
     selectedMode: LampMode,
     lampType: LampType,
     rgbColor: RgbColor,
+    colorError: String?,
     onLampType: (LampType) -> Unit,
     onColor: (RgbColor) -> Unit,
     onColorCommit: (RgbColor) -> Unit,
@@ -322,6 +326,15 @@ private fun LampScreen(
             ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     AppText("Lamp-Da", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    if (connected && !connectedLampName.isNullOrBlank()) {
+                        Text(
+                            text = connectedLampName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
+                    }
                     AppText(
                         text = "${connectionState}  |  ${batteryLevel?.let { "Battery $it%" } ?: "Battery --"}",
                         color = MaterialTheme.colorScheme.secondary,
@@ -383,6 +396,7 @@ private fun LampScreen(
                     selectedMode = selectedMode,
                     lampType = lampType,
                     rgbColor = rgbColor,
+                    colorError = colorError,
                     colorsExpanded = colorsExpanded,
                     onColorsToggle = { colorsExpanded = !colorsExpanded },
                     onColor = onColor,
@@ -445,13 +459,6 @@ private enum class AppTab(val title: String) {
     Uart("UART"),
 }
 
-private enum class UartLogFilter(val label: String) {
-    All("All"),
-    Rx("RX"),
-    Tx("TX"),
-    App("APP"),
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UartTab(
@@ -464,19 +471,11 @@ private fun UartTab(
     var input by remember { mutableStateOf("") }
     var shortcutsExpanded by remember { mutableStateOf(false) }
     var shortcutCategory by remember { mutableStateOf<UartCategory?>(null) }
-    var selectedFilter by rememberSaveable { mutableStateOf(UartLogFilter.All) }
+    var selectedFilterName by rememberSaveable(key = "uart_log_filter_name") { mutableStateOf("All") }
+    val selectedFilter = UartLogFilter.fromStored(selectedFilterName)
     val clipboardManager = LocalClipboardManager.current
     val logListState = rememberLazyListState()
-    val visibleLogs = run {
-        when (selectedFilter) {
-            UartLogFilter.All -> logs
-            UartLogFilter.Rx -> logs.filter { it.startsWith("RX ") }
-            UartLogFilter.Tx -> logs.filter { it.startsWith("TX ") }
-            UartLogFilter.App -> logs.filter {
-                it.contains("APP_")
-            }
-        }
-    }
+    val visibleLogs = logs.filter(selectedFilter::includes)
 
     LaunchedEffect(visibleLogs.size, visibleLogs.lastOrNull(), selectedFilter) {
         if (visibleLogs.isNotEmpty()) {
@@ -563,7 +562,7 @@ private fun UartTab(
                 UartLogFilter.entries.forEach { filter ->
                     FilterChip(
                         selected = selectedFilter == filter,
-                        onClick = { selectedFilter = filter },
+                        onClick = { selectedFilterName = filter.name },
                         label = { AppText(filter.label) }
                     )
                 }
@@ -626,6 +625,7 @@ private fun ControlTab(
     selectedMode: LampMode,
     lampType: LampType,
     rgbColor: RgbColor,
+    colorError: String?,
     colorsExpanded: Boolean,
     onColorsToggle: () -> Unit,
     onColor: (RgbColor) -> Unit,
@@ -746,7 +746,7 @@ private fun ControlTab(
         }
 
         if (lampType == LampType.Rgb) item {
-            RgbColorControls(rgbColor, onColor, onColorCommit, colorsExpanded, onColorsToggle)
+            RgbColorControls(rgbColor, onColor, onColorCommit, colorsExpanded, onColorsToggle, colorError)
         }
 
         item {
@@ -1081,12 +1081,16 @@ private class LampBleController(private val context: Context) {
         private set
     var rgbColor by mutableStateOf(RgbColor())
         private set
+    var colorError by mutableStateOf<String?>(null)
+        private set
     private var manualLampType = false
 
     val devices = mutableStateListOf<LampDevice>()
     var connectionState by mutableStateOf("Disconnected")
         private set
     var isConnected by mutableStateOf(false)
+        private set
+    var connectedLampName by mutableStateOf<String?>(null)
         private set
     val diagnosticCommands = mutableStateListOf<String>()
     var isScanning by mutableStateOf(false)
@@ -1113,6 +1117,7 @@ private class LampBleController(private val context: Context) {
     private var gatt: BluetoothGatt? = null
     private var uartRxCharacteristic: BluetoothGattCharacteristic? = null
     private var uartTxCharacteristic: BluetoothGattCharacteristic? = null
+    private var elkColorCharacteristic: BluetoothGattCharacteristic? = null
     private var batteryCharacteristic: BluetoothGattCharacteristic? = null
     private val notificationQueue = ArrayDeque<BluetoothGattCharacteristic>()
     private data class PendingWrite(val characteristic: BluetoothGattCharacteristic, val payload: ByteArray)
@@ -1132,7 +1137,7 @@ private class LampBleController(private val context: Context) {
         cancelScheduled = { mainHandler.removeCallbacks(it) }, send = send)
     private val brightnessSender = controlSender<Int> { sendUartLine(Firmware19.brightness(it)) }
     private val speedSender = controlSender<Int> { sendUartLine(Firmware19.ramp(it)) }
-    private val colorSender = controlSender<RgbColor> { sendUartLine(Firmware19.color(it)) }
+    private val colorSender = controlSender<RgbColor> { sendElkColor(it) }
     private var writeAdmissionRetries = 0
     private val retryUartWriteRunnable = Runnable { processUartWriteQueue() }
 
@@ -1240,6 +1245,9 @@ private class LampBleController(private val context: Context) {
                 gatt.getService(BatteryServiceUuid)
                     ?.getCharacteristic(BatteryLevelCharacteristicUuid)
 
+            elkColorCharacteristic = gatt.getService(ElkColorProtocol.ServiceUuid)
+                ?.getCharacteristic(ElkColorProtocol.CharacteristicUuid)?.takeIf { it.canWrite() }
+
             val uartService = gatt.getService(UartServiceUuid)
             uartRxCharacteristic = uartService?.getCharacteristic(UartRxCharacteristicUuid)
                 ?: gatt.services
@@ -1341,7 +1349,7 @@ private class LampBleController(private val context: Context) {
                 if (this@LampBleController.gatt != gatt) return@onMain
                 uartWriteInProgress = false
                 if (status != BluetoothGatt.GATT_SUCCESS) {
-                    appendUartLog("APP UART write failed: $status; remaining command discarded")
+                    appendUartLog("APP BLE write failed: $status; remaining command discarded")
                     retryConnection("Write failed: $status")
                     return@onMain
                 }
@@ -1429,6 +1437,7 @@ private class LampBleController(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     private fun connectGatt(device: BluetoothDevice, name: String) {
+        connectedLampName = name
         connectionState = "Connecting to $name"
         gatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             device.connectGatt(
@@ -1467,9 +1476,12 @@ private class LampBleController(private val context: Context) {
         if (mode.lampType != lampType) return
         speedSender.cancel()
         colorSender.cancel()
+        if (mode == LampMode.RgbCustom) {
+            sendColor(rgbColor, commit = true)
+            return
+        }
         selectedMode = mode
-        if (mode == LampMode.RgbCustom) sendUartLine(Firmware19.color(rgbColor))
-        else sendUartLine(Firmware19.mode(mode))
+        sendUartLine(Firmware19.mode(mode))
     }
 
     fun chooseLampType(type: LampType) {
@@ -1482,15 +1494,36 @@ private class LampBleController(private val context: Context) {
         colorSender.cancel()
         speedSender.cancel()
         lampType = type
+        colorError = null
         selectedMode = type.availableModes().first()
     }
 
     fun sendColor(color: RgbColor, commit: Boolean = false) {
         if (lampType != LampType.Rgb) return
+        if (colorTarget() == null) return
         speedSender.cancel()
         rgbColor = color
         selectedMode = LampMode.RgbCustom
         colorSender.update(color, commit)
+    }
+
+    private fun colorTarget(): BluetoothGattCharacteristic? {
+        val error = when {
+            gatt == null || !postConnectSetupDone -> "Connect to the lamp first."
+            elkColorCharacteristic == null -> "ELK color control is unavailable on this lamp."
+            else -> null
+        }
+        if (error != null && error != colorError) appendUartLog("APP $error")
+        colorError = error
+        return if (error == null) elkColorCharacteristic else null
+    }
+
+    private fun sendElkColor(color: RgbColor) {
+        val characteristic = colorTarget() ?: return
+        appendUartLog("TX ELK color ${color.red} ${color.green} ${color.blue}")
+        // One binary frame, no UART newline; share the GATT queue with other controls.
+        uartWriteQueue.add(PendingWrite(characteristic, ElkColorProtocol.frame(color)))
+        processUartWriteQueue()
     }
 
     fun syncTime() {
@@ -1627,7 +1660,7 @@ private class LampBleController(private val context: Context) {
                 mainHandler.removeCallbacks(retryUartWriteRunnable)
                 mainHandler.postDelayed(retryUartWriteRunnable, 150L)
             } else {
-                appendUartLog("APP UART write rejected repeatedly; connection reset")
+                appendUartLog("APP BLE write rejected repeatedly; connection reset")
                 retryConnection("Write failed")
             }
             return
@@ -1657,9 +1690,12 @@ private class LampBleController(private val context: Context) {
     @SuppressLint("MissingPermission")
     private fun closeGatt() {
         isConnected = false
+        connectedLampName = null
         diagnosticCommands.clear()
         uartRxCharacteristic = null
         uartTxCharacteristic = null
+        elkColorCharacteristic = null
+        colorError = null
         batteryCharacteristic = null
         batteryLevel = null
         sunsetEndsAtMillis = null

@@ -258,4 +258,6 @@
     <string name="ui_app_source">Source de l’application (GitHub)</string>
     <string name="ui_firmware_source">Firmware Lamp-Da (GitHub)</string>
     <string name="ui_no_browser">Aucun navigateur disponible</string>
+    <string name="ui_elk_color_unavailable">Le contrôle des couleurs ELK est indisponible sur cette lampe.</string>
+    <string name="ui_rename_disabled">Renommage désactivé en attente du correctif firmware.</string>
 </resources>

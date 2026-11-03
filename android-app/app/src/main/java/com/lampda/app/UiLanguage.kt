@@ -23,6 +23,8 @@ internal val LocalUiResources = staticCompositionLocalOf<Resources?> { null }
 
 // Canonical labels remain separate from raw UART payloads and device identities.
 internal val UiResourceIds = mapOf(
+    "Renaming is disabled pending a firmware fix." to R.string.ui_rename_disabled,
+    "ELK color control is unavailable on this lamp." to R.string.ui_elk_color_unavailable,
     "Developed by s0ca" to R.string.ui_developer_credit,
     "App source (GitHub)" to R.string.ui_app_source,
     "Lamp-Da firmware (GitHub)" to R.string.ui_firmware_source,

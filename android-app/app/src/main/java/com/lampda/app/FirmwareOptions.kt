@@ -36,9 +36,7 @@ internal fun FirmwareOptions(type: LampType, connected: Boolean, onCommand: (Str
     var slot by rememberSaveable { mutableIntStateOf(0) }
     var slotMenu by rememberSaveable { mutableStateOf(false) }
     var confirmSave by rememberSaveable { mutableStateOf(false) }
-    var name by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
-    val validName = name.matches(Regex("[A-Za-z0-9-]{1,30}"))
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -73,13 +71,11 @@ internal fun FirmwareOptions(type: LampType, connected: Boolean, onCommand: (Str
                     }
                 }
             }
-            TextField(value = name, onValueChange = { name = it.take(30) }, singleLine = true,
+            // Re-enable after the firmware retains fragmented BLE UART commands.
+            TextField(value = "", onValueChange = {}, singleLine = true, enabled = false,
                 label = { AppText("Bluetooth name") }, modifier = Modifier.fillMaxWidth(),
-                isError = name.isNotEmpty() && !validName)
-            Button(enabled = connected && validName, onClick = {
-                onCommand(Firmware19.rename(name))
-                message = "Rename requested; applies after lamp restart"
-            }) {
+                supportingText = { AppText("Renaming is disabled pending a firmware fix.") })
+            Button(enabled = false, onClick = {}) {
                 Icon(Icons.Default.Edit, contentDescription = null)
                 AppText("Rename", Modifier.padding(start = 6.dp))
             }
