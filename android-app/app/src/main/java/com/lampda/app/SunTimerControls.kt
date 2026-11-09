@@ -7,14 +7,14 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +34,8 @@ private enum class TimerSchedule { Duration, Clock }
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun SunTimerControls(
+    expanded: Boolean,
+    onToggle: () -> Unit,
     minutes: Int,
     remainingSeconds: Int,
     activeKind: SunTimerKind?,
@@ -43,7 +45,6 @@ internal fun SunTimerControls(
     onSyncTime: () -> Unit,
     onStart: (SunTimerKind, Calendar?) -> Unit,
 ) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
     var kind by rememberSaveable { mutableStateOf(SunTimerKind.Sunset) }
     var schedule by rememberSaveable { mutableStateOf(TimerSchedule.Duration) }
     var input by rememberSaveable { mutableStateOf(minutes.toString()) }
@@ -56,18 +57,19 @@ internal fun SunTimerControls(
     LaunchedEffect(supportsSunrise) {
         if (!supportsSunrise) kind = SunTimerKind.Sunset
     }
-    val running = remainingSeconds > 0 && activeKind != null
-    val formattedRemaining = "%02d:%02d:%02d".format(
-        remainingSeconds / 3600, remainingSeconds / 60 % 60, remainingSeconds % 60)
+    val summary = sunTimerSummary(activeKind, remainingSeconds, kind, minutes,
+        if (schedule == TimerSchedule.Clock) hour to minute else null)
 
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onToggle),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
                 AppText("Sunrise / Sunset", fontWeight = FontWeight.SemiBold)
-                AppText(if (running) "${activeKind?.label} $formattedRemaining" else kind.label,
+                AppText(summary,
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
             }
-            TextButton(onClick = { expanded = !expanded }) { AppText(if (expanded) "Hide" else "Show") }
+            AppText(if (expanded) "Hide" else "Show", color = MaterialTheme.colorScheme.primary)
         }
         error?.let { AppText(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         if (expanded) {

@@ -1,14 +1,21 @@
 # Lamp-Da Android
 
-Android companion application for Lamp-Da lamps running firmware v1.9.
-Current application version: **0.3.10**. Android 8.0 (API 26) or newer.
+Android companion application for Lamp-Da lamps running the updated official develop firmware.
+Current application version: **0.4.0**. Android 8.0 (API 26) or newer.
+
+Beta versions install as **Lamp-Da Beta** (`com.lampda.app.beta`), alongside the
+stable app (`com.lampda.app`). Settings and permissions are separate; existing
+settings are not automatically migrated to the beta app.
 
 ## Features
 
 - Bluetooth scanning, remembered lamps and standard battery level.
+- Experimental multi-lamp control: up to four sessions, individual or same-type groups.
+- Named command targets and explicit local/requested/reported control values.
 - Simple and RGB modes, brightness, effect parameters and custom colors.
 - Sunrise / sunset controls, subject to firmware support.
 - French / English interface and s0ca, Half-Life and Lambda themes.
+- Optional fullscreen mode, saved in Settings > App.
 - Optional advanced UART console and experimental local USB UF2 updater.
 
 See the [application guide](android-app/README.md) and
@@ -33,17 +40,20 @@ No firmware binaries, SDK paths, signing keys, Gradle caches or APKs are include
 
 Download the latest signed APK from [GitHub Releases](https://github.com/s0ca/LampDa_Android_App/releases).
 
+The stable app checks GitHub for newer stable releases at launch. Updates are
+downloaded and installed manually; the app still works offline.
+
 Development builds are available in GitHub Actions artifacts. They are intended
 for testing and may not update an existing installation.
 
 ## Known Limitations
 
-Controls represent requests, not synchronized physical-button state. RGB hardware
-coverage is incomplete. Long UART commands can fail over BLE with firmware that
-does not retain fragmented commands until the terminating newline; renaming over
-USB has been confirmed separately. Custom RGB controls avoid this issue by using
-a single 9-byte ELK color frame, including for pale colors. Other controls keep
-using UART. BLE transport completion is not a firmware application acknowledgement.
+All controls use UART, including RGB. The updated develop firmware is required
+for reliable fragmented commands and live mode, brightness and ramp feedback.
+BLE MTU negotiation uses larger packets when supported, with a 20-byte fallback.
+Power and RGB color readback are not provided by the current firmware signals.
+RGB hardware coverage is incomplete. BLE transport completion is not a firmware
+application acknowledgement.
 
 USB flashing requires a compatible board, trusted application UF2, a working USB
 host connection and explicit confirmations. Never format the bootloader volume.

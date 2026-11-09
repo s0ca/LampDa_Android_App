@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -16,7 +18,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.OutlinedIconButton
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,12 +39,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun FirmwareOptions(type: LampType, connected: Boolean, onCommand: (String) -> Unit) {
     var slot by rememberSaveable { mutableIntStateOf(0) }
     var slotMenu by rememberSaveable { mutableStateOf(false) }
     var confirmSave by rememberSaveable { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
+    var name by rememberSaveable { mutableStateOf("") }
+    val validName = name.matches(Regex("[A-Za-z0-9-]{1,30}"))
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -57,25 +68,37 @@ internal fun FirmwareOptions(type: LampType, connected: Boolean, onCommand: (Str
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(enabled = connected, onClick = {
-                        onCommand(Firmware19.favorite(slot, save = false))
-                        message = "Favorite ${slot + 1} recall requested"
-                    }, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.Star, contentDescription = null)
-                        AppText("Recall", Modifier.padding(start = 6.dp))
+                    val recallLabel = uiString("Recall") + " - " + uiString("Slot ${slot + 1}")
+                    val saveLabel = uiString("Save") + " - " + uiString("Slot ${slot + 1}")
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                        tooltip = { PlainTooltip { Text(recallLabel) } }, state = rememberTooltipState(),
+                    ) {
+                        OutlinedIconButton(enabled = connected, onClick = {
+                            onCommand(Firmware19.favorite(slot, save = false))
+                            message = "Favorite ${slot + 1} recall requested"
+                        }, modifier = Modifier.size(48.dp), shape = RoundedCornerShape(8.dp)) {
+                            Icon(Icons.Default.Refresh, contentDescription = recallLabel)
+                        }
                     }
-                    OutlinedButton(enabled = connected, onClick = { confirmSave = true },
-                        modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.Check, contentDescription = null)
-                        AppText("Save", Modifier.padding(start = 6.dp))
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                        tooltip = { PlainTooltip { Text(saveLabel) } }, state = rememberTooltipState(),
+                    ) {
+                        OutlinedIconButton(enabled = connected, onClick = { confirmSave = true },
+                            modifier = Modifier.size(48.dp), shape = RoundedCornerShape(8.dp)) {
+                            Icon(Icons.Default.Check, contentDescription = saveLabel)
+                        }
                     }
                 }
             }
-            // Re-enable after the firmware retains fragmented BLE UART commands.
-            TextField(value = "", onValueChange = {}, singleLine = true, enabled = false,
+            TextField(value = name, onValueChange = { name = it }, singleLine = true, enabled = connected,
                 label = { AppText("Bluetooth name") }, modifier = Modifier.fillMaxWidth(),
-                supportingText = { AppText("Renaming is disabled pending a firmware fix.") })
-            Button(enabled = false, onClick = {}) {
+                isError = name.isNotEmpty() && !validName,
+                supportingText = { AppText("1-30 letters, digits or hyphens. Applies after restarting the lamp.") })
+            Button(enabled = connected && validName, onClick = {
+                onCommand(Firmware19.rename(name))
+            }) {
                 Icon(Icons.Default.Edit, contentDescription = null)
                 AppText("Rename", Modifier.padding(start = 6.dp))
             }

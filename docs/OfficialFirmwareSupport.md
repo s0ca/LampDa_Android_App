@@ -1,7 +1,7 @@
 # Official firmware UART support
 
-Reference: official tag **v1.9**, commit
-`ee1d79f26e75c54012053b96bf3728057263b2a9` of BaptisteHudyma/Lamp-Da.
+Reference: official **develop**, commit `78e92e3` of BaptisteHudyma/Lamp-Da,
+retrieved on 2026-11-04. Uses the v1.9 command family with newer transport fixes and signals.
 
 ## Transport
 
@@ -9,14 +9,10 @@ Nordic UART service: `6e400001-b5a3-f393-e0a9-e50e24dcca9e`.
 Write to `6e400002-b5a3-f393-e0a9-e50e24dcca9e`;
 subscribe to `6e400003-b5a3-f393-e0a9-e50e24dcca9e`.
 Each UTF-8 command ends in a newline. A serial operation queue splits writes into
-20-byte chunks, preserving command order at the default ATT MTU.
-ELK is not required for connection. Custom RGB colors use the optional ELK
-service `0000fff0-0000-1000-8000-00805f9b34fb`, writable characteristic
-`0000fff3-0000-1000-8000-00805f9b34fb`. Each color is sent as one binary frame:
-`7E 00 05 03 RR GG BB 00 EF`, with full 0-255 RGB values and no UART newline.
-This applies to sliders, the wheel, swatches, HEX input and custom-color mode.
-The writes share the same serialized GATT queue as UART controls. Missing ELK
-support is reported in the color panel, without a UART color fallback.
+negotiated ATT payloads (MTU minus 3, capped at 244 bytes), preserving command order.
+MTU 247 is requested before service discovery; failure falls back to MTU 23.
+All RGB controls use `set color R G B`, including sliders, wheel, swatches and HEX.
+The updated firmware retains partial lines, so 20-byte fallback packets are safe.
 The scan list defaults to all BLE devices. Its Known lamps filter and badge use
 remembered addresses, not generic UUID/name matching. A new known address is saved
 only after a recognized lamp-type UART reply.
@@ -31,18 +27,34 @@ Standard Battery Service notifications remain enabled independently.
 | Brightness | `set brgt N`, integer 0-1024 |
 | Effect parameter | `set ramp N`, integer 0-255 |
 | Mode | `set mode GROUP MODE` |
-| RGB | GUI uses the ELK frame above; `set color R G B` remains available manually |
+| RGB | `set color R G B`, each integer 0-255 |
 | Clock | `set time H M S DAY`, Sunday = 0 |
 | Sunset | `set sunset H M S DAY` |
 | Recall RGB favorite | `set favorite INDEX`, 0-7 |
 | Save RGB favorite | `set new_favorite INDEX`, 0-7 |
 | Rename | `set ble_name NAME` |
+| Current Bluetooth name | `sys ble_name` |
 
-Slider values are transmitted directly, without ELK percentage quantization.
+Slider values are transmitted directly, without percentage quantization.
 Ramps are labeled as speed, palette, color temperature or effect parameter.
 Pulse 1 and Pulse 2 have no adjustable ramp in official v1.9.
 Names accept 1-30 ASCII letters, digits or hyphens. Renaming applies after the
 lamp restarts; the app does not reboot it automatically.
+
+## Live feedback
+
+`$brgt:N`, `$ramp:N` and `$mode:GROUP:MODE` update only the originating session's
+controls without sending an echo command. `$ind:N` is recognized but has no UI control.
+Values are range checked; unknown modes do not change the selected tile.
+`ble_name: NAME` updates the header using the actual configured name, not the
+Android advertising cache. A rename acknowledgement does not imply advertising
+has restarted: the configured name is re-read, but advertising changes after reboot.
+Startup sends only `t`, `sys ble_name` and clock synchronization in addition to
+standard battery reads/notifications. Help and diagnostic dumps remain manual.
+No full state snapshot, power signal or RGB color signal is currently available.
+UI provenance is tracked independently for each control and session. Requests are
+not treated as acknowledgements. Reconnect clears reported provenance; a group
+is only labeled as reported when all recipients report the same control value.
 
 ## Mode catalogs
 

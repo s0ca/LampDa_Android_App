@@ -53,4 +53,23 @@ class LatestControlSenderTest {
         h.tick()
         assertEquals(listOf(40), h.sent)
     }
+
+    @Test fun disconnectingOneSenderDoesNotCancelAnotherLampsPendingValue() {
+        val first = Harness()
+        val second = Harness()
+        first.sender.update(200)
+        second.sender.update(800)
+        first.sender.cancel()
+        second.tick()
+        assertTrue(first.sent.isEmpty())
+        assertEquals(listOf(800), second.sent)
+    }
+
+    @Test fun targetChangesCanCancelAllScheduledValuesWithoutReplayingOnCommit() {
+        val lamps = listOf(Harness(), Harness())
+        lamps.forEach { it.sender.update(512) }
+        lamps.forEach { it.sender.cancel() }
+        lamps.forEach { it.sender.commit() }
+        assertTrue(lamps.all { it.sent.isEmpty() && it.scheduled.isEmpty() })
+    }
 }

@@ -38,10 +38,10 @@ internal fun nextSunTimerTime(now: Calendar, hour: Int, minute: Int): Calendar {
     }
 }
 
-// Commands and mode addresses are pinned to official tag v1.9 (ee1d79f).
+// Commands and feedback match official develop 78e92e3 (v1.9 command family).
 internal object Firmware19 {
     // Keep startup traffic bounded: capability/help and diagnostic dumps are manual only.
-    val connectionQueries: List<String> = listOf("t")
+    val connectionQueries: List<String> = listOf("t", "sys ble_name")
     fun advertisesSunrise(line: String) = firmwareLine(line).startsWith("set sunrise ")
     fun command(line: String): String = when (line) {
         "bat", "ble", "states", "time", "cinfo", "alerts", "i2c", "stats" -> "sys $line"
@@ -68,3 +68,31 @@ internal object Firmware19 {
 
 internal fun firmwareLine(line: String): String =
     line.trim().replaceFirst(Regex("""^\d+>\s*"""), "")
+
+internal sealed interface FirmwareFeedback {
+    data class Brightness(val value: Int) : FirmwareFeedback
+    data class Ramp(val value: Int) : FirmwareFeedback
+    data class Mode(val group: Int, val mode: Int) : FirmwareFeedback
+    data class Indicator(val value: Int) : FirmwareFeedback
+    data class BleName(val name: String) : FirmwareFeedback
+}
+
+internal fun firmwareFeedback(line: String): FirmwareFeedback? {
+    val content = firmwareLine(line)
+    if (content.startsWith("ble_name: ")) {
+        return content.removePrefix("ble_name: ").trim().takeIf { it.isNotEmpty() }
+            ?.let(FirmwareFeedback::BleName)
+    }
+    val fields = content.split(':')
+    val value = fields.getOrNull(1)?.toIntOrNull() ?: return null
+    return when {
+        fields.size == 2 && fields[0] == "\$brgt" && value in 0..1024 -> FirmwareFeedback.Brightness(value)
+        fields.size == 2 && fields[0] == "\$ramp" && value in 0..255 -> FirmwareFeedback.Ramp(value)
+        fields.size == 2 && fields[0] == "\$ind" && value in 0..2 -> FirmwareFeedback.Indicator(value)
+        fields.size == 3 && fields[0] == "\$mode" && value in 0..255 ->
+            fields[2].toIntOrNull()?.takeIf { it in 0..255 }?.let { FirmwareFeedback.Mode(value, it) }
+        else -> null
+    }
+}
+
+internal fun uartPayloadSize(mtu: Int): Int = (mtu.coerceIn(23, 517) - 3).coerceAtMost(244)

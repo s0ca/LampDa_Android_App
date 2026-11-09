@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -53,6 +54,8 @@ internal fun SettingsDialog(
     val changeTheme = LocalChangeTheme.current
     val language = LocalAppLanguage.current
     val changeLanguage = LocalChangeLanguage.current
+    val fullscreen = LocalFullscreen.current
+    val changeFullscreen = LocalChangeFullscreen.current
     val context = LocalContext.current
     AlertDialog(onDismissRequest = onDismiss, title = { AppText("Settings") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -67,6 +70,11 @@ internal fun SettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 when (tab) {
                     0 -> {
+                        Row(Modifier.fillMaxWidth().toggleable(fullscreen, role = Role.Switch,
+                            onValueChange = changeFullscreen), verticalAlignment = Alignment.CenterVertically) {
+                            AppText("Fullscreen", Modifier.weight(1f))
+                            Switch(fullscreen, onCheckedChange = null)
+                        }
                         AppText("Language", fontWeight = FontWeight.SemiBold)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AppLanguage.entries.forEach { option ->

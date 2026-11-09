@@ -1,20 +1,31 @@
 # Lamp-Da Android
 
-Android controller for official Lamp-Da **v1.9**, Simple and RGB / Indexable.
-Controls use official Nordic UART commands, except custom RGB colors, which use
-the firmware's compact ELK color frame. No legacy CFW is required.
+Android controller for official Lamp-Da **develop 78e92e3**, Simple and RGB / Indexable.
+All controls use official Nordic UART commands. No legacy CFW is required.
 
 ## Controls
+
+Power, brightness and the current mode's adjustable ramp share the first control
+block. The ramp stays outside the collapsible mode browser. Mode summaries keep
+the mode name, ramp value and feedback provenance visible when collapsed.
+Modes, Colors and Sunrise/Sunset start collapsed; expansion choices survive tab
+switches. Colors retain their HEX/provenance summary. Sunrise/Sunset shows its
+configured duration or clock deadline when idle and the acknowledged timer's local
+countdown while running, including when collapsed.
+The RGB tool uses the same themed surface, 8 dp corners and 16 dp padding as
+the neighboring controls, with its title left-aligned and color preview on the right.
 
 - Power and full-resolution brightness (0-1024).
 - Six Simple modes; 54 RGB modes arranged by category.
 - Effect ramp (0-255), with mode-specific speed/palette/parameter labels.
 - Custom RGB channels, color swatches and hex input.
   RGB sliders are shown first by default; the color wheel is an alternate view.
-  Both views send one 9-byte ELK color frame to avoid fragmented UART color lines.
+  Both views send `set color R G B` through the serialized UART queue.
 - Eight Indexable favorite slots: recall and save with overwrite confirmation.
-- Bluetooth rename is temporarily disabled in Settings pending the firmware's
-  fragmented UART command fix. The field and button remain visibly disabled.
+  Favorite actions use fixed 48 dp icon buttons with localized tooltips and
+  accessibility labels including the slot, so long translations cannot wrap.
+- Bluetooth rename is available again with the firmware's fragmented command fix.
+  The new name applies after restarting the lamp; the app does not restart it.
 - Sunset by duration or end time, phone clock synchronization and acknowledged countdown.
 - Sunrise can be attempted explicitly, with a firmware refusal reported when unavailable.
 - Standard BLE battery level in the header and optional advanced UART console; no status dashboard.
@@ -22,6 +33,10 @@ the firmware's compact ELK color frame. No legacy CFW is required.
   and About. Themes s0ca, Half-Life (orange/black) and Lambda (pink/cyan) apply immediately and persist
   across app restarts. Mode tiles hide internal group/mode identifiers.
 - French / English selection in Settings > App, applied immediately and persisted.
+- Fullscreen switch in Settings > App, enabled by default and persisted. Disable
+  it to show Android status/navigation bars; content respects the visible bars.
+  The preference also applies to the USB update screen. Android's file chooser
+  and permission dialogs retain their system-controlled appearance.
   Raw UART responses, command syntax and Bluetooth device names are not translated.
 - The header offers Connect while disconnected and Disconnect only when UART is ready.
 - UART shortcuts include official v1.9 queries and editable control templates.
@@ -30,12 +45,78 @@ the firmware's compact ELK color frame. No legacy CFW is required.
   Recovery shortcuts require a corresponding manually requested firmware help entry.
 
 Connection startup reads/subscribes to the standard battery characteristic, sends
-one compact `t` query for lamp identity, and synchronizes the phone clock.
+compact `t` and `sys ble_name` queries, and synchronizes the phone clock.
 No help pages or diagnostic dumps are requested automatically. All `h`, `sys h`,
 `set h`, version and diagnostic queries remain available manually in the UART tab.
 
-Control positions represent local requests, not synchronized physical-button state.
+Mode, brightness and ramp positions follow `$mode`, `$brgt` and `$ramp` feedback.
+No automatic diagnostic polling is needed. Initial positions remain local defaults
+until the firmware emits a change; there is no complete state snapshot command.
 See [protocol details and limitations](../docs/OfficialFirmwareSupport.md).
+
+## Multi-lamp control (experimental)
+
+Version 0.4.0 supports up to four independent BLE sessions. Connect a lamp
+from Scan, then use Select lamps > Add lamp to connect another without closing
+the existing connection. A newly opened connection is selected individually.
+
+In Select lamps, simply check the lamps to control together. One checked lamp
+means individual control; multiple checked lamps form a group automatically.
+There is no separate group-mode switch or mandatory member. Unchecking the last
+lamp leaves all connections open but disables control until a lamp is selected.
+
+The Control target bar lists the names of eligible command recipients separately
+from selected lamps that are not currently controlled. Display and UART names
+the session supplying the visible positions, battery and console. The lamp list
+separates connection state, checkbox selection and command eligibility, and uses
+the latest UART-provided name when available.
+
+Groups require matching profiles and verified lamp-type replies through `t`.
+Checkboxes can be selected while type verification is pending; unverified group
+members receive no commands. A missing identity reply is retried up to three times,
+two seconds apart, then can be retried manually with Verify lamp type. A valid
+reply overrides an outdated saved profile. If verification reveals mixed types,
+group dispatch stops until the incompatible lamp is unchecked.
+Power, brightness, modes, ramp, RGB colors, clock and sunrise/sunset controls
+target eligible checked lamps. Known different-type peers cannot be added.
+An unavailable checked lamp can always be unchecked. Selection is not restored
+after closing the app.
+
+The active lamp supplies the displayed name, battery, requested control positions,
+timer and UART log. It stays active while selected and available; another checked
+ready lamp takes over if it disconnects. UART commands, favorites and profile
+settings remain active-lamp-only. Changing the profile returns to one selection.
+Open in Scan likewise selects that existing connection individually.
+
+Brightness, ramp, mode and RGB controls label value provenance: Local value,
+Requested/unconfirmed, or Received from lamp. Merely sending a command does not
+count as feedback, including when the requested value equals the previous reading.
+An incoming value is the latest reading, not an acknowledgement of a particular
+request. Feedback ignored during a slider drag does not change its provenance.
+Mode changes invalidate the previous ramp reading until a new ramp signal arrives.
+Disconnect invalidates provenance while retaining the last UI positions.
+
+For a group, all eligible selected peers must report the same value for a control
+to be labeled Received from lamp. Different reported values are labeled Different
+values, while numeric positions still belong to the displayed session. Missing
+recipients yield Not synchronized. Custom RGB colors remain unconfirmed because
+the firmware has no color feedback; a custom-mode signal cannot confirm RGB values.
+Power buttons are neutral commands, not indicators of the actual on/off state.
+
+Each session has its own GATT client, queues, UART buffer, battery and reconnect
+schedule. Disconnected peers miss commands, with no replay after reconnecting;
+remaining checked peers can still be controlled. The counter shows eligible
+versus selected lamps. Errors are reported individually in the lamp list.
+Disconnect removes only that session and preserves its remembered known-lamp entry.
+Reconnect attempts reset only after notification setup completes, not merely
+after service discovery. Setup failures are retained in the UART log and Android
+logcat (`LampDaBle`). A failed optional Battery Service subscription does not
+tear down the required UART connection; the initial battery read is still attempted.
+
+There is no group-wide acknowledgement or rollback, and animations are not
+precisely synchronized. Mixed Simple/RGB groups are not supported. Physical
+multi-lamp validation, particularly bonding and reconnect behavior, remains
+necessary on each target phone.
 
 ## Build
 
@@ -60,10 +141,9 @@ Scanning has no Android-level name/service filter. The default list shows all BL
 devices on first use, or Known lamps when lamps have already been remembered.
 Known lamps is the first filter. It uses remembered device addresses, not
 names or generic service UUIDs. Renaming therefore does not remove a known lamp.
-UART services are checked on connection; ELK is not required to connect, but its
-writable color characteristic is required for custom RGB controls. If it is
-absent, the color panel reports an error rather than silently falling back to a
-fragmented UART command. Other controls remain available.
+UART services are checked on connection. No ELK characteristic is used.
+The app requests MTU 247 and uses the negotiated payload, capped at 244 bytes;
+20-byte fallback packets are assembled into whole commands by updated firmware.
 New known-lamp addresses are saved only after a recognized UART lamp-type reply,
 not merely when a generic Nordic UART service is discovered.
 Names and identity are retained when later advertisements omit them. The displayed

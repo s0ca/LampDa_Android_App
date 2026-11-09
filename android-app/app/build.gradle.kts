@@ -3,16 +3,20 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val appVersion = "0.4.0"
+val betaApp = appVersion.substringAfter('-', "").startsWith("beta")
+
 android {
     namespace = "com.lampda.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.lampda.app"
+        applicationId = if (betaApp) "com.lampda.app.beta" else "com.lampda.app"
+        manifestPlaceholders["appLabel"] = if (betaApp) "Lamp-Da Beta" else "Lamp-Da"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.3.10"
+        versionCode = 28
+        versionName = appVersion
     }
 
     compileOptions {

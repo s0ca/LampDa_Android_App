@@ -15,6 +15,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
@@ -82,6 +84,8 @@ internal fun AppThemeHost(content: @Composable () -> Unit) {
     val preferences = remember { context.getSharedPreferences("app_settings", Context.MODE_PRIVATE) }
     var theme by remember { mutableStateOf(AppTheme.fromStored(preferences.getString("theme", null))) }
     var language by remember { mutableStateOf(AppLanguage.fromStored(preferences.getString("language", null))) }
+    var fullscreen by remember { mutableStateOf(preferences.getBoolean("fullscreen", true)) }
+    AppSystemBars(fullscreen)
     val resources = remember(context, language) {
         val config = Configuration(context.resources.configuration)
         config.setLocale(Locale.forLanguageTag(language.tag))
@@ -89,6 +93,11 @@ internal fun AppThemeHost(content: @Composable () -> Unit) {
     }
     CompositionLocalProvider(
         LocalUiResources provides resources,
+        LocalFullscreen provides fullscreen,
+        LocalChangeFullscreen provides { enabled ->
+            fullscreen = enabled
+            preferences.edit().putBoolean("fullscreen", enabled).apply()
+        },
         LocalAppLanguage provides language,
         LocalChangeLanguage provides { selected ->
             language = selected
@@ -101,7 +110,11 @@ internal fun AppThemeHost(content: @Composable () -> Unit) {
         },
     ) {
         MaterialTheme(colorScheme = theme.colors()) {
-            Surface(Modifier.fillMaxSize()) { content() }
+            Surface(Modifier.fillMaxSize()) {
+                Box(if (fullscreen) Modifier else Modifier.safeDrawingPadding()) {
+                    content()
+                }
+            }
         }
     }
 }

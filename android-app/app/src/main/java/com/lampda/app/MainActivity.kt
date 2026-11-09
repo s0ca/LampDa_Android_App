@@ -18,15 +18,10 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.provider.Settings
-import android.graphics.Color as AndroidColor
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -113,53 +108,21 @@ private val ReconnectToken = Any()
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableImmersiveMode()
         setContent {
-            AppThemeHost { LampDaApp() }
-        }
-    }
-
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) enableImmersiveMode()
-    }
-
-    private fun enableImmersiveMode() {
-        window.statusBarColor = AndroidColor.TRANSPARENT
-        window.navigationBarColor = AndroidColor.TRANSPARENT
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            window.attributes = window.attributes.apply {
-                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            AppThemeHost {
+                LampDaApp()
+                AppUpdateNotice()
             }
         }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-            window.decorView.post {
-                window.decorView.windowInsetsController?.let { controller ->
-                    controller.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-                    controller.systemBarsBehavior =
-                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                }
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility =
-                View.SYSTEM_UI_FLAG_FULLSCREEN or
-                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
-                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
-                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        }
     }
+
 }
 
 @Composable
 private fun LampDaApp() {
     val context = LocalContext.current
-    val controller = remember { LampBleController(context.applicationContext) }
+    val fleet = remember { LampFleetController(context.applicationContext) }
+    val controller = fleet.active
     var hasPermissions by remember { mutableStateOf(context.hasBlePermissions()) }
     var sunsetRemainingSeconds by remember { mutableIntStateOf(0) }
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -175,7 +138,7 @@ private fun LampDaApp() {
     }
 
     DisposableEffect(Unit) {
-        onDispose { controller.close() }
+        onDispose { fleet.close() }
     }
 
     DisposableEffect(context) {
@@ -187,7 +150,7 @@ private fun LampDaApp() {
         onDispose { lifecycle?.removeObserver(observer) }
     }
 
-    LaunchedEffect(controller.sunsetEndsAtMillis) {
+    LaunchedEffect(fleet.activeAddress, controller.sunsetEndsAtMillis) {
         val endsAt = controller.sunsetEndsAtMillis
         if (endsAt == null) {
             sunsetRemainingSeconds = 0
@@ -202,23 +165,32 @@ private fun LampDaApp() {
         }
     }
 
+    LaunchedEffect(fleet.selectedAddresses, fleet.sessions.map {
+        Triple(it.device.address, it.controller.isConnected, it.controller.reportedType to it.controller.lampType)
+    }) {
+        fleet.refreshPrimary()
+    }
+
     LampScreen(
+        fleet = fleet,
         hasPermissions = hasPermissions,
-        devices = controller.devices,
-        connectionState = controller.connectionState,
+        devices = fleet.scanner.devices,
+        connectionState = if (fleet.selectedAddresses.isEmpty() && fleet.sessions.isNotEmpty())
+            "No lamp selected" else controller.connectionState,
         connected = controller.isConnected,
-        isScanning = controller.isScanning,
+        isScanning = fleet.scanner.isScanning,
         batteryLevel = controller.batteryLevel,
-        connectedLampName = controller.connectedLampName,
+        connectedLampName = controller.connectedLampName
+            ?: fleet.sessions.firstOrNull { it.device.address == fleet.activeAddress }?.device?.name,
         uartLogs = controller.uartLogs,
         diagnosticCommands = controller.diagnosticCommands.toSet(),
         selectedMode = controller.selectedMode,
         lampType = controller.lampType,
         rgbColor = controller.rgbColor,
         colorError = controller.colorError,
-        onLampType = { controller.chooseLampType(it) },
-        onColor = { controller.sendColor(it) },
-        onColorCommit = { controller.sendColor(it, commit = true) },
+        onLampType = { fleet.chooseLampType(it) },
+        onColor = { color -> fleet.dispatch { it.sendColor(color) } },
+        onColorCommit = { color -> fleet.dispatch { it.sendColor(color, commit = true) } },
         brightness = controller.brightness,
         speed = controller.speed,
         sunsetMinutes = controller.sunsetMinutes,
@@ -227,18 +199,21 @@ private fun LampDaApp() {
         timerError = controller.sunTimerError,
         supportsSunrise = controller.supportsSunrise,
         onRequestPermissions = { permissionLauncher.launch(requiredBlePermissions()) },
-        onToggleScan = { controller.toggleScan() },
-        onConnect = { controller.connect(it) },
-        onDisconnect = { controller.disconnect() },
-        onPower = { controller.setPower(it) },
-        onBrightness = { controller.sendBrightness(it) },
-        onBrightnessCommit = { controller.commitBrightness() },
-        onSpeed = { controller.sendSpeed(it) },
-        onSpeedCommit = { controller.commitSpeed() },
-        onMode = { controller.setMode(it) },
+        onToggleScan = { fleet.scanner.toggleScan() },
+        onConnect = { fleet.connect(it) },
+        onDisconnect = { fleet.disconnectActive() },
+        onPower = { enabled -> fleet.dispatch { it.setPower(enabled) } },
+        onBrightness = { value -> fleet.dispatch { it.sendBrightness(value) } },
+        onBrightnessCommit = { fleet.dispatch { it.commitBrightness() } },
+        onSpeed = { value -> fleet.dispatch { it.sendSpeed(value) } },
+        onSpeedCommit = { fleet.dispatch { it.commitSpeed() } },
+        onMode = { mode -> fleet.dispatch { it.setMode(mode) } },
         onSunsetMinutes = { controller.sunsetMinutes = it },
-        onSyncTime = { controller.syncTime() },
-        onStartSunset = { kind, target -> controller.startSunTimer(kind, target) },
+        onSyncTime = { fleet.dispatch { it.syncTime() } },
+        onStartSunset = { kind, target ->
+            val minutes = controller.sunsetMinutes
+            fleet.dispatch { it.sunsetMinutes = minutes; it.startSunTimer(kind, target) }
+        },
         onSendUart = { controller.sendUartLine(it) },
         onClearUart = { controller.clearUartLogs() },
     )
@@ -247,6 +222,7 @@ private fun LampDaApp() {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun LampScreen(
+    fleet: LampFleetController,
     hasPermissions: Boolean,
     devices: List<LampDevice>,
     connectionState: String,
@@ -293,7 +269,11 @@ private fun LampScreen(
         mutableStateOf(settingsPreferences.getBoolean("advanced_uart", false))
     }
     var settingsVisible by rememberSaveable { mutableStateOf(false) }
-    var colorsExpanded by rememberSaveable { mutableStateOf(true) }
+    var sessionsVisible by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(fleet.activeAddress) { settingsVisible = false }
+    var colorsExpanded by rememberSaveable { mutableStateOf(false) }
+    var modesExpanded by rememberSaveable { mutableStateOf(false) }
+    var timerExpanded by rememberSaveable { mutableStateOf(false) }
     val tabs = if (advancedUartEnabled) {
         listOf(AppTab.Control, AppTab.Scan, AppTab.Uart)
     } else {
@@ -326,7 +306,7 @@ private fun LampScreen(
             ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     AppText("Lamp-Da", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    if (connected && !connectedLampName.isNullOrBlank()) {
+                    if (!connectedLampName.isNullOrBlank()) {
                         Text(
                             text = connectedLampName,
                             style = MaterialTheme.typography.bodySmall,
@@ -342,6 +322,24 @@ private fun LampScreen(
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.TextButton(
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        onClick = {
+                            if (fleet.selectedAddresses.isEmpty() && fleet.sessions.isNotEmpty()) sessionsVisible = true
+                            else if (connected) onDisconnect()
+                            else if (!hasPermissions) onRequestPermissions()
+                            else {
+                                selectedTab = AppTab.Scan
+                                if (!isScanning) onToggleScan()
+                            }
+                        },
+                    ) {
+                        AppText(when {
+                            fleet.selectedAddresses.isEmpty() && fleet.sessions.isNotEmpty() -> "Select lamps"
+                            connected -> "Disconnect"
+                            else -> "Connect"
+                        }, style = MaterialTheme.typography.labelMedium)
+                    }
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
                         tooltip = { PlainTooltip { AppText("Settings") } },
@@ -351,16 +349,6 @@ private fun LampScreen(
                             Icon(Icons.Default.Settings, contentDescription = uiString("Settings"),
                                 tint = MaterialTheme.colorScheme.primary)
                         }
-                    }
-                    OutlinedButton(onClick = {
-                        if (connected) onDisconnect()
-                        else if (!hasPermissions) onRequestPermissions()
-                        else {
-                            selectedTab = AppTab.Scan
-                            if (!isScanning) onToggleScan()
-                        }
-                    }) {
-                        AppText(if (connected) "Disconnect" else "Connect")
                     }
                 }
             }
@@ -388,9 +376,24 @@ private fun LampScreen(
             }
         }
 
+        fleet.error?.let { AppText(it, color = MaterialTheme.colorScheme.error) }
+        fleet.sessions.firstOrNull { it.device.address == fleet.activeAddress }?.let {
+            ConnectionRepairNotice(fleet, it)
+        }
+        if (selectedTab == AppTab.Control && fleet.sessions.isNotEmpty()) {
+            FleetTargetBar(fleet, onManage = { sessionsVisible = true })
+        }
+
         Box(Modifier.weight(1f)) {
             when (selectedTab) {
-                AppTab.Control -> ControlTab(
+                AppTab.Control -> if (fleet.selectedAddresses.isEmpty() && fleet.sessions.isNotEmpty()) {
+                    AppText("No lamp selected", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else ControlTab(
+                    origins = fleet.origins,
+                    modesExpanded = modesExpanded,
+                    onModesToggle = { modesExpanded = !modesExpanded },
+                    timerExpanded = timerExpanded,
+                    onTimerToggle = { timerExpanded = !timerExpanded },
                     brightness = brightness,
                     speed = speed,
                     selectedMode = selectedMode,
@@ -418,6 +421,8 @@ private fun LampScreen(
                 )
                 AppTab.Scan -> ScanTab(
                     devices = devices,
+                    sessionAddresses = fleet.sessions.map { it.device.address }.toSet(),
+                    scanState = fleet.scanner.connectionState,
                     isScanning = isScanning,
                     onToggleScan = onToggleScan,
                     onConnect = {
@@ -426,6 +431,7 @@ private fun LampScreen(
                     },
                 )
                 AppTab.Uart -> UartTab(
+                    targetAddress = fleet.activeAddress,
                     logs = uartLogs,
                     connected = connected,
                     shortcuts = uartShortcuts(lampType, supportsSunrise, diagnosticCommands),
@@ -435,6 +441,14 @@ private fun LampScreen(
             }
         }
 
+    }
+
+    if (sessionsVisible) {
+        LampSessionsDialog(fleet, onAdd = {
+            sessionsVisible = false
+            selectedTab = AppTab.Scan
+            if (!isScanning) onToggleScan()
+        }, onDismiss = { sessionsVisible = false })
     }
 
     if (settingsVisible) {
@@ -462,15 +476,16 @@ private enum class AppTab(val title: String) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UartTab(
+    targetAddress: String?,
     logs: List<String>,
     connected: Boolean,
     shortcuts: List<UartShortcut>,
     onSend: (String) -> Unit,
     onClear: () -> Unit,
 ) {
-    var input by remember { mutableStateOf("") }
-    var shortcutsExpanded by remember { mutableStateOf(false) }
-    var shortcutCategory by remember { mutableStateOf<UartCategory?>(null) }
+    var input by remember(targetAddress) { mutableStateOf("") }
+    var shortcutsExpanded by remember(targetAddress) { mutableStateOf(false) }
+    var shortcutCategory by remember(targetAddress) { mutableStateOf<UartCategory?>(null) }
     var selectedFilterName by rememberSaveable(key = "uart_log_filter_name") { mutableStateOf("All") }
     val selectedFilter = UartLogFilter.fromStored(selectedFilterName)
     val clipboardManager = LocalClipboardManager.current
@@ -620,6 +635,11 @@ private fun UartTab(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ControlTab(
+    origins: ControlOrigins,
+    modesExpanded: Boolean,
+    onModesToggle: () -> Unit,
+    timerExpanded: Boolean,
+    onTimerToggle: () -> Unit,
     brightness: Int,
     speed: Int,
     selectedMode: LampMode,
@@ -645,8 +665,11 @@ private fun ControlTab(
     onSyncTime: () -> Unit,
     onStartSunset: (SunTimerKind, Calendar?) -> Unit,
 ) {
-    var modesExpanded by rememberSaveable { mutableStateOf(false) }
     var category by rememberSaveable(lampType) { mutableStateOf(lampType.availableModes().first().category) }
+    val modeSummary = uiString(selectedMode.label) + " | " + uiString(origins.mode.label) +
+        if (selectedMode.supportsSpeed) " | " + uiString(selectedMode.rampLabel) + " $speed/255 (" +
+            uiString(origins.ramp.label) + ")" else ""
+    val parameterLabel = uiString(selectedMode.label) + " | " + uiString(selectedMode.rampLabel)
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -660,7 +683,7 @@ private fun ControlTab(
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(modifier = Modifier.weight(1f), onClick = { onPower(true) }) {
+                        OutlinedButton(modifier = Modifier.weight(1f), onClick = { onPower(true) }) {
                             AppText("On")
                         }
                         OutlinedButton(modifier = Modifier.weight(1f), onClick = { onPower(false) }) {
@@ -668,7 +691,11 @@ private fun ControlTab(
                         }
                     }
 
+                    AppText("Power state not reported", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+
                     ControlSlider(
+                        origin = origins.brightness,
                         label = "Brightness",
                         value = brightness,
                         onValueChange = onBrightness,
@@ -680,7 +707,21 @@ private fun ControlTab(
                             onBrightnessCommit(it)
                         },
                     )
-
+                    if (selectedMode.supportsSpeed) {
+                        ControlSlider(
+                            origin = origins.ramp,
+                            label = parameterLabel,
+                            value = speed,
+                            onValueChange = onSpeed,
+                            onValueChangeFinished = { onSpeedCommit(speed) },
+                            maxValue = 255,
+                            presets = listOf(0, 64, 128, 192, 255),
+                            onPreset = {
+                                onSpeed(it)
+                                onSpeedCommit(it)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -693,24 +734,10 @@ private fun ControlTab(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     CollapsibleHeader(
                         title = "Modes",
-                        detail = selectedMode.label,
+                        detail = modeSummary,
                         expanded = modesExpanded,
-                        onToggle = { modesExpanded = !modesExpanded }
+                        onToggle = onModesToggle,
                     )
-                    if (selectedMode.supportsSpeed) {
-                        ControlSlider(
-                            label = selectedMode.rampLabel,
-                            value = speed,
-                            onValueChange = onSpeed,
-                            onValueChangeFinished = { onSpeedCommit(speed) },
-                            maxValue = 255,
-                            presets = listOf(0, 64, 128, 192, 255),
-                            onPreset = {
-                                onSpeed(it)
-                                onSpeedCommit(it)
-                            },
-                        )
-                    }
                     if (modesExpanded) {
                         if (lampType == LampType.Rgb) {
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -732,7 +759,8 @@ private fun ControlTab(
                                 ModeTile(
                                     mode = mode,
                                     speedSupported = mode.supportsSpeed,
-                                    selected = selectedMode == mode,
+                                    selected = selectedMode == mode && origins.mode in
+                                        listOf(ControlOrigin.Requested, ControlOrigin.Reported),
                                     onClick = { onMode(mode) },
                                     modifier = Modifier
                                         .weight(1f)
@@ -746,7 +774,13 @@ private fun ControlTab(
         }
 
         if (lampType == LampType.Rgb) item {
-            RgbColorControls(rgbColor, onColor, onColorCommit, colorsExpanded, onColorsToggle, colorError)
+            Card(
+                shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                RgbColorControls(rgbColor, onColor, onColorCommit, colorsExpanded, onColorsToggle,
+                    colorError, origins.color)
+            }
         }
 
         item {
@@ -755,6 +789,8 @@ private fun ControlTab(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 SunTimerControls(
+                    expanded = timerExpanded,
+                    onToggle = onTimerToggle,
                     minutes = sunsetMinutes,
                     remainingSeconds = sunsetRemainingSeconds,
                     activeKind = timerKind,
@@ -779,12 +815,13 @@ private fun CollapsibleHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
             .clickable(onClick = onToggle)
             .padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             AppText(title, fontWeight = FontWeight.SemiBold)
             AppText(detail, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall)
         }
@@ -795,6 +832,7 @@ private fun CollapsibleHeader(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ControlSlider(
+    origin: ControlOrigin,
     label: String,
     value: Int,
     onValueChange: (Int) -> Unit,
@@ -805,7 +843,10 @@ private fun ControlSlider(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            AppText(label, fontWeight = FontWeight.SemiBold)
+            Column(Modifier.weight(1f)) {
+                AppText(label, fontWeight = FontWeight.SemiBold)
+                ControlOriginLabel(origin)
+            }
             AppText("$value / $maxValue")
         }
         Slider(
@@ -823,7 +864,8 @@ private fun ControlSlider(
             ) {
                 presets.forEach { preset ->
                     FilterChip(
-                        selected = value == preset,
+                        selected = value == preset && origin in
+                            listOf(ControlOrigin.Requested, ControlOrigin.Reported),
                         onClick = { onPreset(preset) },
                         label = { AppText("${(preset * 100f / maxValue).roundToInt()}%") }
                     )
@@ -893,6 +935,8 @@ private fun ModeTile(
 @Composable
 private fun ScanTab(
     devices: List<LampDevice>,
+    sessionAddresses: Set<String>,
+    scanState: String,
     isScanning: Boolean,
     onToggleScan: () -> Unit,
     onConnect: (LampDevice) -> Unit,
@@ -948,6 +992,9 @@ private fun ScanTab(
             }
         }
 
+        if (scanState != "Scanning" && scanState != "Disconnected") {
+            AppText(scanState, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ScanListFilter.entries.forEach { filter ->
                 FilterChip(scanFilter == filter, onClick = { scanFilter = filter }, label = { AppText(filter.label) })
@@ -987,6 +1034,7 @@ private fun ScanTab(
                 items(visibleDevices, key = { it.address }) { device ->
                     LampDeviceRow(
                         device = device.copy(rssi = rankedSignals[device.address] ?: device.rssi),
+                        alreadyAdded = device.address in sessionAddresses,
                         onConnect = { onConnect(device) }
                     )
                 }
@@ -999,6 +1047,7 @@ private fun ScanTab(
 @Composable
 private fun LampDeviceRow(
     device: LampDevice,
+    alreadyAdded: Boolean,
     onConnect: () -> Unit,
 ) {
     Card(
@@ -1044,7 +1093,7 @@ private fun LampDeviceRow(
                 }
             }
             Button(onClick = onConnect) {
-                AppText("Connect")
+                AppText(if (alreadyAdded) "Open" else "Connect")
             }
         }
     }
@@ -1070,7 +1119,7 @@ data class LampDevice(
 )
 
 @SuppressLint("MissingPermission")
-private class LampBleController(private val context: Context) {
+internal class LampBleController(private val context: Context) {
     private val bluetoothManager = context.getSystemService(BluetoothManager::class.java)
     private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager?.adapter
     private val scanner get() = bluetoothAdapter?.bluetoothLeScanner
@@ -1079,28 +1128,35 @@ private class LampBleController(private val context: Context) {
 
     var lampType by mutableStateOf(LampType.Simple)
         private set
-    var rgbColor by mutableStateOf(RgbColor())
+    var reportedType by mutableStateOf<LampType?>(null)
         private set
+    var colorReading by mutableStateOf(ControlReading(RgbColor()))
+        private set
+    val rgbColor get() = colorReading.value
     var colorError by mutableStateOf<String?>(null)
         private set
-    private var manualLampType = false
 
     val devices = mutableStateListOf<LampDevice>()
     var connectionState by mutableStateOf("Disconnected")
         private set
     var isConnected by mutableStateOf(false)
         private set
+    var connectionIssue by mutableStateOf<String?>(null)
+        private set
     var connectedLampName by mutableStateOf<String?>(null)
         private set
     val diagnosticCommands = mutableStateListOf<String>()
     var isScanning by mutableStateOf(false)
         private set
-    var selectedMode by mutableStateOf(LampMode.Static)
+    var modeReading by mutableStateOf(ControlReading(LampMode.Static))
         private set
-    var brightness by mutableIntStateOf(512)
+    val selectedMode get() = modeReading.value
+    var brightnessReading by mutableStateOf(ControlReading(512))
         private set
-    var speed by mutableIntStateOf(128)
+    val brightness get() = brightnessReading.value
+    var rampReading by mutableStateOf(ControlReading(128))
         private set
+    val speed get() = rampReading.value
     var sunsetMinutes by mutableIntStateOf(30)
     var sunsetEndsAtMillis by mutableStateOf<Long?>(null)
         private set
@@ -1117,7 +1173,8 @@ private class LampBleController(private val context: Context) {
     private var gatt: BluetoothGatt? = null
     private var uartRxCharacteristic: BluetoothGattCharacteristic? = null
     private var uartTxCharacteristic: BluetoothGattCharacteristic? = null
-    private var elkColorCharacteristic: BluetoothGattCharacteristic? = null
+    private var negotiatedMtu = 23
+    private var serviceDiscoveryStarted = false
     private var batteryCharacteristic: BluetoothGattCharacteristic? = null
     private val notificationQueue = ArrayDeque<BluetoothGattCharacteristic>()
     private data class PendingWrite(val characteristic: BluetoothGattCharacteristic, val payload: ByteArray)
@@ -1137,7 +1194,14 @@ private class LampBleController(private val context: Context) {
         cancelScheduled = { mainHandler.removeCallbacks(it) }, send = send)
     private val brightnessSender = controlSender<Int> { sendUartLine(Firmware19.brightness(it)) }
     private val speedSender = controlSender<Int> { sendUartLine(Firmware19.ramp(it)) }
-    private val colorSender = controlSender<RgbColor> { sendElkColor(it) }
+    private val colorSender = controlSender<RgbColor> { sendUartLine(Firmware19.color(it)) }
+    private var editingBrightness = false
+    private var editingRamp = false
+    private val identityProbe = LampIdentityProbe(
+        schedule = { task, delay -> mainHandler.postDelayed(task, delay); Unit },
+        cancelScheduled = { mainHandler.removeCallbacks(it) },
+        request = { if (postConnectSetupDone && gatt != null) sendUartLine("t") },
+    )
     private var writeAdmissionRetries = 0
     private val retryUartWriteRunnable = Runnable { processUartWriteQueue() }
 
@@ -1205,6 +1269,14 @@ private class LampBleController(private val context: Context) {
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
+        override fun onServiceChanged(gatt: BluetoothGatt) {
+            onMain {
+                if (this@LampBleController.gatt != gatt) return@onMain
+                // Discard outstanding operations before discovering the changed database on a new connection.
+                retryConnection("Lamp services changed; reconnecting")
+            }
+        }
+
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (this@LampBleController.gatt != gatt) return
             if (status != BluetoothGatt.GATT_SUCCESS) {
@@ -1218,17 +1290,22 @@ private class LampBleController(private val context: Context) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     manualDisconnect = false
                     onMain { connectionState = "Connected, discovering services" }
-                    mainHandler.postDelayed({
-                        if (this@LampBleController.gatt == gatt) {
-                            gatt.discoverServices()
-                        }
-                    }, 600)
+                    if (!gatt.requestMtu(247)) discoverOnce(gatt)
+                    mainHandler.postDelayed({ discoverOnce(gatt) }, 2_000)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     onMain { connectionState = "Disconnected" }
                     closeGatt()
                     scheduleReconnect()
                 }
+            }
+        }
+
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            onMain {
+                if (this@LampBleController.gatt != gatt) return@onMain
+                if (status == BluetoothGatt.GATT_SUCCESS) negotiatedMtu = mtu
+                discoverOnce(gatt)
             }
         }
 
@@ -1239,14 +1316,9 @@ private class LampBleController(private val context: Context) {
                 return
             }
 
-            reconnectAttempts = 0
-
             batteryCharacteristic =
                 gatt.getService(BatteryServiceUuid)
                     ?.getCharacteristic(BatteryLevelCharacteristicUuid)
-
-            elkColorCharacteristic = gatt.getService(ElkColorProtocol.ServiceUuid)
-                ?.getCharacteristic(ElkColorProtocol.CharacteristicUuid)?.takeIf { it.canWrite() }
 
             val uartService = gatt.getService(UartServiceUuid)
             uartRxCharacteristic = uartService?.getCharacteristic(UartRxCharacteristicUuid)
@@ -1325,14 +1397,25 @@ private class LampBleController(private val context: Context) {
             descriptor: BluetoothGattDescriptor,
             status: Int
         ) {
-            if (this@LampBleController.gatt != gatt) return
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                retryConnection("Notification setup failed: $status")
-                return
-            }
             onMain {
                 if (this@LampBleController.gatt != gatt) return@onMain
                 notificationWriteInProgress = false
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    val message = "Notification setup failed: $status (${descriptor.characteristic.uuid})"
+                    if (!optionalBleNotification(descriptor.characteristic.uuid)) {
+                        if (requiresManualBleRepair(status)) {
+                            appendUartLog("APP $message")
+                            manualDisconnect = true
+                            mainHandler.removeCallbacksAndMessages(ReconnectToken)
+                            closeGatt()
+                            connectionIssue = "Lamp notifications were refused. Retry the connection; if it persists, renew this lamp's pairing."
+                            connectionState = "Connection needs attention"
+                        } else retryConnection(message)
+                        return@onMain
+                    }
+                    appendUartLog("APP $message; using battery reads only")
+                    android.util.Log.w("LampDaBle", message)
+                }
                 processNotificationQueue(gatt)
                 finishPostConnectSetupIfIdle(gatt)
             }
@@ -1424,12 +1507,14 @@ private class LampBleController(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun connect(device: LampDevice) {
+        connectionIssue = null
         if (!context.hasBlePermissions()) return
+        mainHandler.removeCallbacksAndMessages(ReconnectToken)
+        reconnectAttempts = 0
         stopScan()
         closeGatt()
         lastDevice = device
         val savedType = preferences.getString("type_${device.address}", null)
-        manualLampType = savedType != null
         applyLampType(LampType.entries.firstOrNull { it.name == savedType } ?: LampType.Simple)
         manualDisconnect = false
         connectGatt(device.bluetoothDevice, device.name)
@@ -1459,18 +1544,34 @@ private class LampBleController(private val context: Context) {
     }
 
     fun sendBrightness(value: Int, commit: Boolean = false) {
-        brightness = value.coerceIn(0, 1024)
+        editingBrightness = !commit
+        brightnessReading = brightnessReading.request(value.coerceIn(0, 1024))
         brightnessSender.update(brightness, commit)
     }
 
-    fun commitBrightness() = brightnessSender.commit()
+    fun commitBrightness() {
+        editingBrightness = false
+        brightnessSender.commit()
+    }
 
     fun sendSpeed(value: Int, commit: Boolean = false) {
-        speed = value.coerceIn(0, 255)
+        editingRamp = !commit
+        rampReading = rampReading.request(value.coerceIn(0, 255))
         speedSender.update(speed, commit)
     }
 
-    fun commitSpeed() = speedSender.commit()
+    fun commitSpeed() {
+        editingRamp = false
+        speedSender.commit()
+    }
+
+    fun cancelContinuousControls() {
+        editingBrightness = false
+        editingRamp = false
+        brightnessSender.cancel()
+        speedSender.cancel()
+        colorSender.cancel()
+    }
 
     fun setMode(mode: LampMode) {
         if (mode.lampType != lampType) return
@@ -1480,14 +1581,19 @@ private class LampBleController(private val context: Context) {
             sendColor(rgbColor, commit = true)
             return
         }
-        selectedMode = mode
+        modeReading = modeReading.request(mode)
+        rampReading = rampReading.invalidate()
+        colorReading = colorReading.invalidate()
         sendUartLine(Firmware19.mode(mode))
     }
 
     fun chooseLampType(type: LampType) {
-        manualLampType = true
         lastDevice?.let { preferences.edit().putString("type_${it.address}", type.name).apply() }
         applyLampType(type)
+    }
+
+    fun verifyLampType() {
+        if (isConnected && postConnectSetupDone) identityProbe.start()
     }
 
     private fun applyLampType(type: LampType) {
@@ -1495,35 +1601,29 @@ private class LampBleController(private val context: Context) {
         speedSender.cancel()
         lampType = type
         colorError = null
-        selectedMode = type.availableModes().first()
+        modeReading = ControlReading(type.availableModes().first())
+        rampReading = rampReading.invalidate()
+        colorReading = colorReading.invalidate()
     }
 
     fun sendColor(color: RgbColor, commit: Boolean = false) {
         if (lampType != LampType.Rgb) return
         if (colorTarget() == null) return
         speedSender.cancel()
-        rgbColor = color
-        selectedMode = LampMode.RgbCustom
+        colorReading = colorReading.request(color)
+        modeReading = modeReading.request(LampMode.RgbCustom)
         colorSender.update(color, commit)
     }
 
     private fun colorTarget(): BluetoothGattCharacteristic? {
         val error = when {
             gatt == null || !postConnectSetupDone -> "Connect to the lamp first."
-            elkColorCharacteristic == null -> "ELK color control is unavailable on this lamp."
+            uartRxCharacteristic == null -> "UART not connected"
             else -> null
         }
         if (error != null && error != colorError) appendUartLog("APP $error")
         colorError = error
-        return if (error == null) elkColorCharacteristic else null
-    }
-
-    private fun sendElkColor(color: RgbColor) {
-        val characteristic = colorTarget() ?: return
-        appendUartLog("TX ELK color ${color.red} ${color.green} ${color.blue}")
-        // One binary frame, no UART newline; share the GATT queue with other controls.
-        uartWriteQueue.add(PendingWrite(characteristic, ElkColorProtocol.frame(color)))
-        processUartWriteQueue()
+        return if (error == null) uartRxCharacteristic else null
     }
 
     fun syncTime() {
@@ -1605,7 +1705,11 @@ private class LampBleController(private val context: Context) {
         val device = lastDevice ?: return
         if (!context.hasBlePermissions()) return
         if (reconnectAttempts >= MaxReconnectAttempts) {
-            onMain { connectionState = "Disconnected" }
+            appendUartLog("APP Reconnection limit reached; reconnect manually to retry")
+            onMain {
+                connectionState = "Connection needs attention"
+                connectionIssue = "Reconnection failed. Check that the lamp is available, then retry."
+            }
             return
         }
 
@@ -1619,6 +1723,8 @@ private class LampBleController(private val context: Context) {
     }
 
     private fun retryConnection(message: String) {
+        appendUartLog("APP $message")
+        android.util.Log.w("LampDaBle", message)
         onMain { connectionState = message }
         closeGatt()
         scheduleReconnect()
@@ -1680,8 +1786,8 @@ private class LampBleController(private val context: Context) {
         }
 
         if (!postConnectSetupDone) return
-        // Preserve command order and split UART writes at the default ATT payload size.
-        payload.toList().chunked(20).forEach { chunk ->
+        // The firmware assembles a full line across packets, even at the default MTU.
+        payload.toList().chunked(uartPayloadSize(negotiatedMtu)).forEach { chunk ->
             uartWriteQueue.add(PendingWrite(characteristic, chunk.toByteArray()))
         }
         processUartWriteQueue()
@@ -1689,12 +1795,19 @@ private class LampBleController(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     private fun closeGatt() {
+        identityProbe.stop()
+        brightnessReading = brightnessReading.invalidate()
+        rampReading = rampReading.invalidate()
+        modeReading = modeReading.invalidate()
+        colorReading = colorReading.invalidate()
         isConnected = false
         connectedLampName = null
+        reportedType = null
         diagnosticCommands.clear()
         uartRxCharacteristic = null
         uartTxCharacteristic = null
-        elkColorCharacteristic = null
+        negotiatedMtu = 23
+        serviceDiscoveryStarted = false
         colorError = null
         batteryCharacteristic = null
         batteryLevel = null
@@ -1711,6 +1824,8 @@ private class LampBleController(private val context: Context) {
         speedSender.cancel()
         colorSender.cancel()
         mainHandler.removeCallbacks(retryUartWriteRunnable)
+        editingBrightness = false
+        editingRamp = false
         writeAdmissionRetries = 0
         notificationQueue.clear()
         notificationWriteInProgress = false
@@ -1781,7 +1896,11 @@ private class LampBleController(private val context: Context) {
 
         if (!ok) {
             notificationWriteInProgress = false
-            retryConnection("Could not enable lamp notifications")
+            if (optionalBleNotification(characteristic.uuid)) {
+                appendUartLog("APP Battery notification write rejected; using battery reads only")
+                processNotificationQueue(gatt)
+                finishPostConnectSetupIfIdle(gatt)
+            } else retryConnection("Could not enable lamp notifications")
         }
     }
 
@@ -1790,6 +1909,7 @@ private class LampBleController(private val context: Context) {
         if (postConnectSetupDone || notificationWriteInProgress || notificationQueue.isNotEmpty()) return
 
         postConnectSetupDone = true
+        reconnectAttempts = 0
         isConnected = true
         onMain { connectionState = "Connected" }
         appendUartLog("UART notifications enabled")
@@ -1806,7 +1926,8 @@ private class LampBleController(private val context: Context) {
 
         mainHandler.postDelayed({
             if (this@LampBleController.gatt == gatt) {
-                Firmware19.connectionQueries.forEach(::sendUartLine)
+                identityProbe.start()
+                Firmware19.connectionQueries.filterNot { it == "t" }.forEach(::sendUartLine)
             }
         }, 700)
     }
@@ -1828,19 +1949,53 @@ private class LampBleController(private val context: Context) {
             uartLineBuffer = uartLineBuffer.substring(lineEndIndex + 1)
             if (line.isNotEmpty()) {
                 val content = firmwareLine(line)
+                when (val feedback = firmwareFeedback(content)) {
+                    is FirmwareFeedback.Brightness -> if (!editingBrightness)
+                        brightnessReading = brightnessReading.receive(feedback.value)
+                    is FirmwareFeedback.Ramp -> if (!editingRamp)
+                        rampReading = rampReading.receive(feedback.value)
+                    is FirmwareFeedback.Mode -> {
+                        val mode = lampType.availableModes().firstOrNull {
+                            it.groupId == feedback.group && it.modeId == feedback.mode
+                        }
+                        if (mode != selectedMode) rampReading = rampReading.invalidate()
+                        modeReading = mode?.let { modeReading.receive(it) } ?: modeReading.invalidate()
+                        if (mode != LampMode.RgbCustom) colorReading = colorReading.invalidate()
+                    }
+                    is FirmwareFeedback.BleName -> connectedLampName = feedback.name
+                    is FirmwareFeedback.Indicator, null -> Unit
+                }
                 updateSunTimerFromUart(content)
+                if (content.startsWith("New ble name set to: ")) {
+                    val currentGatt = gatt
+                    mainHandler.postDelayed({
+                        if (gatt == currentGatt && postConnectSetupDone) sendUartLine("sys ble_name")
+                    }, 300)
+                }
                 reportedLampType(content)?.let { type ->
+                    identityProbe.stop()
+                    reportedType = type
                     val knownLamps = preferences.getStringSet("known_lamps", emptySet()).orEmpty().toMutableSet()
                     gatt?.device?.address?.let { knownLamps.add(it) }
                     preferences.edit().putStringSet("known_lamps", knownLamps).apply()
                     val deviceIndex = devices.indexOfFirst { it.address == gatt?.device?.address }
                     if (deviceIndex >= 0) devices[deviceIndex] = devices[deviceIndex].copy(isKnownLamp = true)
-                    if (!manualLampType && lampType != type) applyLampType(type)
+                    if (lampType != type) applyLampType(type)
+                    lastDevice?.let { preferences.edit().putString("type_${it.address}", type.name).apply() }
                 }
                 if (Firmware19.advertisesSunrise(content)) supportsSunrise = true
                 advertisedDiagnostic(content)?.let { if (it !in diagnosticCommands) diagnosticCommands.add(it) }
                 appendUartLog("RX $line")
             }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun discoverOnce(currentGatt: BluetoothGatt) {
+        onMain {
+            if (gatt != currentGatt || serviceDiscoveryStarted) return@onMain
+            serviceDiscoveryStarted = true
+            if (!currentGatt.discoverServices()) retryConnection("Service discovery failed")
         }
     }
 

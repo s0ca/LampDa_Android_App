@@ -32,6 +32,7 @@ internal fun uartShortcuts(type: LampType, sunrise: Boolean, diagnostics: Set<St
         UartShortcut("Summary", "sum"), UartShortcut("Version", "v"),
         UartShortcut("Lamp type", "t"), UartShortcut("Serial number", "id"),
         UartShortcut("Battery", "sys bat"), UartShortcut("Bluetooth", "sys ble"),
+        UartShortcut("Bluetooth name", "sys ble_name"),
         UartShortcut("States", "sys states"), UartShortcut("Clock", "sys time"),
         UartShortcut("Charger", "sys cinfo"), UartShortcut("Alerts", "sys alerts"),
         UartShortcut("I2C", "sys i2c"), UartShortcut("USB power", "sys pd"),

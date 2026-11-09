@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
@@ -73,22 +74,24 @@ private fun RgbColor.displayColor(): Color = Color(red / 255f, green / 255f, blu
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun RgbColorControls(color: RgbColor, onChange: (RgbColor) -> Unit, onCommit: (RgbColor) -> Unit,
-    expanded: Boolean, onToggle: () -> Unit, error: String? = null) {
+    expanded: Boolean, onToggle: () -> Unit, error: String? = null,
+    origin: ControlOrigin = ControlOrigin.Local) {
     val colorLabel = uiString("Color")
     var hex by remember { mutableStateOf(color.hex) }
     var draft by remember(color) { mutableStateOf(color) }
     var wheelView by rememberSaveable(key = "rgb_wheel_secondary") { mutableStateOf(false) }
     LaunchedEffect(color) { hex = color.hex }
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 8.dp),
+    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onToggle),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.size(28.dp).background(color.displayColor(), RoundedCornerShape(6.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)))
             Column(Modifier.weight(1f)) {
                 AppText("Color", fontWeight = FontWeight.SemiBold)
                 AppText(color.hex, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                ControlOriginLabel(origin)
             }
+            Box(Modifier.size(28.dp).background(color.displayColor(), RoundedCornerShape(6.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp)))
             AppText(if (expanded) "Hide" else "Show", color = MaterialTheme.colorScheme.primary)
         }
         error?.let { AppText(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
@@ -110,11 +113,13 @@ internal fun RgbColorControls(color: RgbColor, onChange: (RgbColor) -> Unit, onC
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 ColorPresets.forEach { (name, preset) ->
                     val accessibleName = uiString(name)
+                    val selected = color == preset && origin in
+                        listOf(ControlOrigin.Requested, ControlOrigin.Reported)
                     Box(Modifier.size(40.dp)
-                        .selectable(color == preset, role = Role.RadioButton, onClick = { onCommit(preset) })
+                        .selectable(selected, role = Role.RadioButton, onClick = { onCommit(preset) })
                         .padding(4.dp).background(preset.displayColor(), CircleShape)
-                        .border(if (color == preset) 3.dp else 1.dp,
-                            if (color == preset) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
+                        .border(if (selected) 3.dp else 1.dp,
+                            if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline,
                             CircleShape)
                         .semantics { contentDescription = accessibleName })
                 }

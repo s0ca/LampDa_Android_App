@@ -12,7 +12,7 @@ class FirmwareProtocolTest {
     }
 
     @Test fun connectionOnlyRequestsTheCompactLampTypeNotHelpOrDiagnostics() {
-        assertEquals(listOf("t"), Firmware19.connectionQueries)
+        assertEquals(listOf("t", "sys ble_name"), Firmware19.connectionQueries)
     }
 
     @Test fun mapsAllSixSimpleModesToOfficialGroups() {
