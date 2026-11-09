@@ -39,11 +39,14 @@ internal fun SunTimerControls(
     minutes: Int,
     remainingSeconds: Int,
     activeKind: SunTimerKind?,
+    canStop: Boolean,
+    stopping: Boolean,
     supportsSunrise: Boolean,
     error: String?,
     onMinutes: (Int) -> Unit,
     onSyncTime: () -> Unit,
     onStart: (SunTimerKind, Calendar?) -> Unit,
+    onStop: () -> Unit,
 ) {
     var kind by rememberSaveable { mutableStateOf(SunTimerKind.Sunset) }
     var schedule by rememberSaveable { mutableStateOf(TimerSchedule.Duration) }
@@ -114,8 +117,13 @@ internal fun SunTimerControls(
                 Button(onClick = {
                     onStart(kind, if (schedule == TimerSchedule.Clock)
                         nextSunTimerTime(Calendar.getInstance(), hour, minute) else null)
-                }, enabled = schedule == TimerSchedule.Clock || input.toIntOrNull() in 1..1440,
+                }, enabled = !stopping && (schedule == TimerSchedule.Clock || input.toIntOrNull() in 1..1440),
                     modifier = Modifier.weight(1f)) { AppText("Start ${kind.label}") }
+            }
+            if (canStop || stopping) {
+                OutlinedButton(onClick = onStop, enabled = canStop, modifier = Modifier.fillMaxWidth()) {
+                    AppText(if (stopping) "Stopping timer..." else "Stop timer")
+                }
             }
         }
     }

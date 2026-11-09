@@ -301,4 +301,21 @@
     <string name="ui_app_update_available">App update available</string>
     <string name="ui_view_app_release">View release on GitHub</string>
     <string name="ui_app_update_later">Later</string>
+    <string name="ui_output_reported_on">Last reported output: On</string>
+    <string name="ui_output_reported_off">Last reported output: Off</string>
+    <string name="ui_output_status">Output status</string>
+    <string name="ui_debug_commands">Debug commands</string>
+    <string name="ui_sun_timers">Sun timers</string>
+    <string name="ui_cancel_sun_timer">Cancel sun timer</string>
+    <string name="ui_battery_flashes">Battery level flashes</string>
+    <string name="ui_button_bindings">Button bindings</string>
+    <string name="ui_reset_button_bindings">Reset button bindings</string>
+    <string name="ui_indicator">Indicator</string>
+    <string name="ui_indicator_brightness">Indicator brightness</string>
+    <string name="ui_indicator_color">Indicator color</string>
+    <string name="ui_restore_indicator_color">Restore indicator color</string>
+    <string name="ui_mic_sensitivity">Microphone sensitivity</string>
+    <string name="ui_stop_timer">Stop timer</string>
+    <string name="ui_stopping_timer">Stopping timer...</string>
+    <string name="ui_timer_stop_unconfirmed">The lamp did not confirm the timer stop.</string>
 </resources>

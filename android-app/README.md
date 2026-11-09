@@ -1,6 +1,6 @@
 # Lamp-Da Android
 
-Android controller for official Lamp-Da **develop 78e92e3**, Simple and RGB / Indexable.
+Android controller for official Lamp-Da **develop 7bb2044**, Simple and RGB / Indexable.
 All controls use official Nordic UART commands. No legacy CFW is required.
 
 ## Controls
@@ -40,7 +40,7 @@ the neighboring controls, with its title left-aligned and color preview on the r
   Raw UART responses, command syntax and Bluetooth device names are not translated.
 - The header offers Connect while disconnected and Disconnect only when UART is ready.
 - UART shortcuts include official v1.9 queries and editable control templates.
-  The bounded, scrollable menu separates General, sys, set and act categories.
+  The bounded, scrollable menu separates General, sys, set, act and debug categories.
   Templates fill the command field without sending; destructive actions have no shortcut.
   Recovery shortcuts require a corresponding manually requested firmware help entry.
 
@@ -49,9 +49,9 @@ compact `t` and `sys ble_name` queries, and synchronizes the phone clock.
 No help pages or diagnostic dumps are requested automatically. All `h`, `sys h`,
 `set h`, version and diagnostic queries remain available manually in the UART tab.
 
-Mode, brightness and ramp positions follow `$mode`, `$brgt` and `$ramp` feedback.
-No automatic diagnostic polling is needed. Initial positions remain local defaults
-until the firmware emits a change; there is no complete state snapshot command.
+After identifying the lamp, the app requests `sys status` once, then `sys sun` if
+the status reply is supported. Mode, brightness and ramp continue to follow
+`$mode`, `$brgt` and `$ramp` feedback. There is no automatic diagnostic polling.
 See [protocol details and limitations](../docs/OfficialFirmwareSupport.md).
 
 ## Multi-lamp control (experimental)

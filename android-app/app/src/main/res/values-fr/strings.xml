@@ -301,4 +301,21 @@
     <string name="ui_app_update_available">Mise à jour disponible</string>
     <string name="ui_view_app_release">Voir sur GitHub</string>
     <string name="ui_app_update_later">Plus tard</string>
+    <string name="ui_output_reported_on">Dernier état reçu : allumée</string>
+    <string name="ui_output_reported_off">Dernier état reçu : éteinte</string>
+    <string name="ui_output_status">État de la lampe</string>
+    <string name="ui_debug_commands">Commandes de diagnostic</string>
+    <string name="ui_sun_timers">Minuteurs lever / coucher</string>
+    <string name="ui_cancel_sun_timer">Annuler le minuteur</string>
+    <string name="ui_battery_flashes">Clignotements de batterie</string>
+    <string name="ui_button_bindings">Actions du bouton</string>
+    <string name="ui_reset_button_bindings">Réinitialiser les actions du bouton</string>
+    <string name="ui_indicator">Voyant</string>
+    <string name="ui_indicator_brightness">Luminosité du voyant</string>
+    <string name="ui_indicator_color">Couleur du voyant</string>
+    <string name="ui_restore_indicator_color">Rétablir la couleur du voyant</string>
+    <string name="ui_mic_sensitivity">Sensibilité du micro</string>
+    <string name="ui_stop_timer">Arrêter le minuteur</string>
+    <string name="ui_stopping_timer">Arrêt en cours...</string>
+    <string name="ui_timer_stop_unconfirmed">La lampe n’a pas confirmé l’arrêt du minuteur.</string>
 </resources>

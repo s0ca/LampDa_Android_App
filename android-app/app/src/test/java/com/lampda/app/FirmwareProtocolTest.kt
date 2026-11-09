@@ -22,7 +22,8 @@ class FirmwareProtocolTest {
 
     @Test fun routesDiagnosticsWithoutChangingManualCommands() {
         assertEquals("sys bat", Firmware19.command("bat"))
-        assertEquals("sys pd", Firmware19.command("PD"))
+        assertEquals("debug pd", Firmware19.command("PD"))
+        assertEquals("sys pd", Firmware19.command("sys pd"))
         assertEquals("v", Firmware19.command("v"))
         assertEquals("set mode 2 1", Firmware19.command("set mode 2 1"))
     }
@@ -73,5 +74,32 @@ class FirmwareProtocolTest {
         assertEquals("battery level:98.20%", firmwareLine("battery level:98.20%"))
         assertEquals("BEHAVIOR_S_MACH > switched to state OUTPUT_LIGHT",
             firmwareLine("1205> BEHAVIOR_S_MACH > switched to state OUTPUT_LIGHT"))
+    }
+
+    @Test fun readsOutputSnapshotsWithoutInventingColorOrModeWhenOff() {
+        assertEquals(FirmwareFeedback.OutputOff, firmwareFeedback("123> \$stat:OFF"))
+        assertEquals(FirmwareFeedback.OutputStatus(5, 29, 255, 1024),
+            firmwareFeedback("\$stat:g5:m29:r255:F brgt:1024"))
+        assertEquals(FirmwareFeedback.OutputStatus(0, 0, 0, 0),
+            firmwareFeedback("\$stat:g0:m0:r0:X brgt:0"))
+        assertNull(firmwareFeedback("\$stat:g5:m29:r256:X brgt:1024"))
+        assertNull(firmwareFeedback("\$stat:g5:m29:r255:X brgt:1025"))
+        assertNull(firmwareFeedback("\$stat:g5:m29:r255:X"))
+    }
+
+    @Test fun readsTimerStatusAndRecognizesUpdatedRefusal() {
+        assertEquals(SunTimerStatus(SunTimerKind.Sunset, 125), sunTimerStatus("120> sunset: enabled, ends in 2m 5s"))
+        assertEquals(SunTimerStatus(SunTimerKind.Sunrise, null), sunTimerStatus("sunrise: disabled"))
+        assertNull(sunTimerStatus("sunset: enabled, ends in 2m 60s"))
+        assertEquals(SunTimerReply.Refused, sunTimerReply("timer end time is less than current time: 5", SunTimerKind.Sunset))
+    }
+
+    @Test fun onlyExplicitStopRepliesConfirmCancellation() {
+        assertEquals("set sun_cancel", Firmware19.SunTimerStop)
+        assertEquals(true, sunTimerStopConfirmed("123> Sunset timer canceled"))
+        assertEquals(true, sunTimerStopConfirmed("Sunrise timer canceled"))
+        assertEquals(true, sunTimerStopConfirmed("No sun timer is running"))
+        assertEquals(false, sunTimerStopConfirmed("sunset: disabled"))
+        assertEquals(false, sunTimerStopConfirmed("unknown command: 'sun_cancel'"))
     }
 }

@@ -1,6 +1,6 @@
 # Official firmware UART support
 
-Reference: official **develop**, commit `78e92e3` of BaptisteHudyma/Lamp-Da,
+Reference: official **develop**, commit `7bb2044` of BaptisteHudyma/Lamp-Da,
 retrieved on 2026-11-04. Uses the v1.9 command family with newer transport fixes and signals.
 
 ## Transport
@@ -49,9 +49,10 @@ Values are range checked; unknown modes do not change the selected tile.
 `ble_name: NAME` updates the header using the actual configured name, not the
 Android advertising cache. A rename acknowledgement does not imply advertising
 has restarted: the configured name is re-read, but advertising changes after reboot.
-Startup sends only `t`, `sys ble_name` and clock synchronization in addition to
-standard battery reads/notifications. Help and diagnostic dumps remain manual.
-No full state snapshot, power signal or RGB color signal is currently available.
+After identity detection, `sys status` reads either `$stat:OFF` or the active
+group, mode, ramp and brightness. The app then reads `sys sun` once on supported
+firmware. Help and diagnostic dumps remain manual. There is no live power or
+RGB color notification. Low-level commands such as `adc` and `pd` now use `debug`.
 UI provenance is tracked independently for each control and session. Requests are
 not treated as acknowledgements. Reconnect clears reported provenance; a group
 is only labeled as reported when all recipients report the same control value.
@@ -89,8 +90,10 @@ inside the favorite group is ignored. Sending is not presented as confirmed savi
 Duration and clock scheduling both synchronize time and use an absolute deadline,
 avoiding the 10-minute-per-call clamp on `set sunset_min`.
 The countdown starts only after `sunset timer set to` / `sunset timer updated to`.
-Refusals and confirmation timeouts are shown. The countdown is local and is not
-restored on reconnect; firmware-side deadline changes are not fully tracked yet.
+Refusals and confirmation timeouts are shown. On supported firmware, `sys sun`
+restores the countdown on reconnect. Stop timer sends `set sun_cancel` to the
+displayed lamp and waits for its confirmation. Firmware-side changes are not
+continuously polled.
 
 Sunrise is **absent from tag v1.9**. Its UI is retained for newer firmware and
 can be attempted explicitly; an unknown-command reply marks it unavailable for

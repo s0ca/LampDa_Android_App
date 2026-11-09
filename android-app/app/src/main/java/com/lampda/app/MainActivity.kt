@@ -390,6 +390,10 @@ private fun LampScreen(
                     AppText("No lamp selected", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else ControlTab(
                     origins = fleet.origins,
+                    canStopTimer = fleet.active.canStopSunTimer,
+                    stoppingTimer = fleet.active.isStoppingSunTimer,
+                    onStopTimer = fleet.active::stopSunTimer,
+                    reportedPower = fleet.active.reportedPower,
                     modesExpanded = modesExpanded,
                     onModesToggle = { modesExpanded = !modesExpanded },
                     timerExpanded = timerExpanded,
@@ -636,6 +640,10 @@ private fun UartTab(
 @Composable
 private fun ControlTab(
     origins: ControlOrigins,
+    canStopTimer: Boolean,
+    stoppingTimer: Boolean,
+    onStopTimer: () -> Unit,
+    reportedPower: Boolean?,
     modesExpanded: Boolean,
     onModesToggle: () -> Unit,
     timerExpanded: Boolean,
@@ -691,7 +699,11 @@ private fun ControlTab(
                         }
                     }
 
-                    AppText("Power state not reported", style = MaterialTheme.typography.bodySmall,
+                    AppText(when (reportedPower) {
+                        true -> "Last reported output: On"
+                        false -> "Last reported output: Off"
+                        null -> "Power state not reported"
+                    }, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                     ControlSlider(
@@ -794,11 +806,14 @@ private fun ControlTab(
                     minutes = sunsetMinutes,
                     remainingSeconds = sunsetRemainingSeconds,
                     activeKind = timerKind,
+                    canStop = canStopTimer,
+                    stopping = stoppingTimer,
                     supportsSunrise = supportsSunrise,
                     error = timerError,
                     onMinutes = onSunsetMinutes,
                     onSyncTime = onSyncTime,
                     onStart = onStartSunset,
+                    onStop = onStopTimer,
                 )
             }
         }
@@ -1162,10 +1177,18 @@ internal class LampBleController(private val context: Context) {
         private set
     var activeSunTimerKind by mutableStateOf<SunTimerKind?>(null)
         private set
+    var reportedPower by mutableStateOf<Boolean?>(null)
+        private set
+    private var supportsOutputStatus = false
     var sunTimerError by mutableStateOf<String?>(null)
         private set
     private data class PendingSunTimer(val kind: SunTimerKind, val endsAt: Long)
-    private var pendingSunTimer: PendingSunTimer? = null
+    private var pendingSunTimer by mutableStateOf<PendingSunTimer?>(null)
+    private var supportsSunTimerStop by mutableStateOf(false)
+    private var pendingSunTimerStop by mutableStateOf<Any?>(null)
+    val isStoppingSunTimer get() = pendingSunTimerStop != null
+    val canStopSunTimer get() = isConnected && supportsSunTimerStop &&
+        activeSunTimerKind != null && pendingSunTimer == null && !isStoppingSunTimer
     var batteryLevel by mutableStateOf<Int?>(null)
         private set
     val uartLogs = mutableStateListOf<String>()
@@ -1537,10 +1560,15 @@ internal class LampBleController(private val context: Context) {
     }
 
     fun setPower(enabled: Boolean) {
+        val currentGatt = gatt
+        reportedPower = null
         sunsetEndsAtMillis = null
         activeSunTimerKind = null
         pendingSunTimer = null
         sendUartLine(Firmware19.power(enabled))
+        if (supportsOutputStatus && currentGatt != null) mainHandler.postDelayed({
+            if (gatt == currentGatt && postConnectSetupDone) sendUartLine(Firmware19.StatusQuery)
+        }, 500)
     }
 
     fun sendBrightness(value: Int, commit: Boolean = false) {
@@ -1641,7 +1669,7 @@ internal class LampBleController(private val context: Context) {
             sunTimerError = "Sunrise is not available on this firmware."
             return
         }
-        if (pendingSunTimer != null) {
+        if (pendingSunTimer != null || isStoppingSunTimer) {
             sunTimerError = "Waiting for the lamp to confirm the timer."
             return
         }
@@ -1676,6 +1704,21 @@ internal class LampBleController(private val context: Context) {
         val payload = Firmware19.command(line.trimEnd()) + "\n"
         appendUartLog("TX ${payload.trimEnd()}")
         writeUart(payload.toByteArray(Charsets.UTF_8))
+    }
+
+    fun stopSunTimer() {
+        val currentGatt = gatt ?: return
+        if (!canStopSunTimer || !postConnectSetupDone || pendingSunTimer != null) return
+        val request = Any()
+        pendingSunTimerStop = request
+        sunTimerError = null
+        sendUartLine(Firmware19.SunTimerStop)
+        mainHandler.postDelayed({
+            if (gatt == currentGatt && pendingSunTimerStop === request) {
+                pendingSunTimerStop = null
+                sunTimerError = "The lamp did not confirm the timer stop."
+            }
+        }, 8_000)
     }
 
     fun clearUartLogs() {
@@ -1795,6 +1838,10 @@ internal class LampBleController(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     private fun closeGatt() {
+        supportsSunTimerStop = false
+        pendingSunTimerStop = null
+        reportedPower = null
+        supportsOutputStatus = false
         identityProbe.stop()
         brightnessReading = brightnessReading.invalidate()
         rampReading = rampReading.invalidate()
@@ -1950,18 +1997,24 @@ internal class LampBleController(private val context: Context) {
             if (line.isNotEmpty()) {
                 val content = firmwareLine(line)
                 when (val feedback = firmwareFeedback(content)) {
+                    FirmwareFeedback.OutputOff -> {
+                        recordReportedPower(false)
+                        brightnessReading = brightnessReading.invalidate()
+                        modeReading = modeReading.invalidate()
+                        rampReading = rampReading.invalidate()
+                        colorReading = colorReading.invalidate()
+                    }
+                    is FirmwareFeedback.OutputStatus -> {
+                        recordReportedPower(true)
+                        applyReportedMode(feedback.group, feedback.mode)
+                        if (!editingBrightness) brightnessReading = brightnessReading.receive(feedback.brightness)
+                        if (!editingRamp) rampReading = rampReading.receive(feedback.ramp)
+                    }
                     is FirmwareFeedback.Brightness -> if (!editingBrightness)
                         brightnessReading = brightnessReading.receive(feedback.value)
                     is FirmwareFeedback.Ramp -> if (!editingRamp)
                         rampReading = rampReading.receive(feedback.value)
-                    is FirmwareFeedback.Mode -> {
-                        val mode = lampType.availableModes().firstOrNull {
-                            it.groupId == feedback.group && it.modeId == feedback.mode
-                        }
-                        if (mode != selectedMode) rampReading = rampReading.invalidate()
-                        modeReading = mode?.let { modeReading.receive(it) } ?: modeReading.invalidate()
-                        if (mode != LampMode.RgbCustom) colorReading = colorReading.invalidate()
-                    }
+                    is FirmwareFeedback.Mode -> applyReportedMode(feedback.group, feedback.mode)
                     is FirmwareFeedback.BleName -> connectedLampName = feedback.name
                     is FirmwareFeedback.Indicator, null -> Unit
                 }
@@ -1973,6 +2026,7 @@ internal class LampBleController(private val context: Context) {
                     }, 300)
                 }
                 reportedLampType(content)?.let { type ->
+                    val firstTypeReply = reportedType == null
                     identityProbe.stop()
                     reportedType = type
                     val knownLamps = preferences.getStringSet("known_lamps", emptySet()).orEmpty().toMutableSet()
@@ -1982,12 +2036,28 @@ internal class LampBleController(private val context: Context) {
                     if (deviceIndex >= 0) devices[deviceIndex] = devices[deviceIndex].copy(isKnownLamp = true)
                     if (lampType != type) applyLampType(type)
                     lastDevice?.let { preferences.edit().putString("type_${it.address}", type.name).apply() }
+                    if (firstTypeReply && postConnectSetupDone) sendUartLine(Firmware19.StatusQuery)
                 }
                 if (Firmware19.advertisesSunrise(content)) supportsSunrise = true
                 advertisedDiagnostic(content)?.let { if (it !in diagnosticCommands) diagnosticCommands.add(it) }
                 appendUartLog("RX $line")
             }
         }
+    }
+
+    private fun recordReportedPower(on: Boolean) {
+        reportedPower = on
+        if (!supportsOutputStatus) {
+            supportsOutputStatus = true
+            sendUartLine("sys sun")
+        }
+    }
+
+    private fun applyReportedMode(group: Int, modeId: Int) {
+        val mode = lampType.availableModes().firstOrNull { it.groupId == group && it.modeId == modeId }
+        if (mode != selectedMode) rampReading = rampReading.invalidate()
+        modeReading = mode?.let { modeReading.receive(it) } ?: modeReading.invalidate()
+        if (mode != LampMode.RgbCustom) colorReading = colorReading.invalidate()
     }
 
     @SuppressLint("MissingPermission")
@@ -2000,6 +2070,20 @@ internal class LampBleController(private val context: Context) {
     }
 
     private fun updateSunTimerFromUart(line: String) {
+        sunTimerStatus(line)?.let { status ->
+            supportsSunTimerStop = true
+            if (pendingSunTimer == null && !isStoppingSunTimer) {
+                if (status.remainingSeconds != null) {
+                    activeSunTimerKind = status.kind
+                    sunsetEndsAtMillis = System.currentTimeMillis() + status.remainingSeconds * 1_000
+                    sunTimerError = null
+                } else if (status.kind == activeSunTimerKind) {
+                    activeSunTimerKind = null
+                    sunsetEndsAtMillis = null
+                }
+            }
+            return
+        }
         val pending = pendingSunTimer
         if (pending != null) {
             when (sunTimerReply(line, pending.kind)) {
@@ -2023,8 +2107,12 @@ internal class LampBleController(private val context: Context) {
                 null -> Unit
             }
         }
-        if (line.equals("${activeSunTimerKind?.label} timer finished !", ignoreCase = true) ||
+        val stopConfirmed = sunTimerStopConfirmed(line)
+        if (stopConfirmed ||
+            line.equals("${activeSunTimerKind?.label} timer finished !", ignoreCase = true) ||
             line.equals("Shutdown with sunset timer", ignoreCase = true)) {
+            if (isStoppingSunTimer || stopConfirmed) sunTimerError = null
+            pendingSunTimerStop = null
             sunsetEndsAtMillis = null
             activeSunTimerKind = null
         }

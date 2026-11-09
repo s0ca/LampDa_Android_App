@@ -1,7 +1,7 @@
 # Lamp-Da Android
 
 Android companion application for Lamp-Da lamps running the updated official develop firmware.
-Current application version: **0.4.0**. Android 8.0 (API 26) or newer.
+Current application version: **0.4.1**. Android 8.0 (API 26) or newer.
 
 Beta versions install as **Lamp-Da Beta** (`com.lampda.app.beta`), alongside the
 stable app (`com.lampda.app`). Settings and permissions are separate; existing
@@ -51,7 +51,8 @@ for testing and may not update an existing installation.
 All controls use UART, including RGB. The updated develop firmware is required
 for reliable fragmented commands and live mode, brightness and ramp feedback.
 BLE MTU negotiation uses larger packets when supported, with a 20-byte fallback.
-Power and RGB color readback are not provided by the current firmware signals.
+Recent firmware reports output status on request. It does not push live power
+changes or report the current RGB color.
 RGB hardware coverage is incomplete. BLE transport completion is not a firmware
 application acknowledgement.
 
