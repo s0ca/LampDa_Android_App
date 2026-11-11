@@ -103,6 +103,16 @@ jobs:
           cd ../dist
           sha256sum "LampDa-${APP_VERSION}.apk" > SHA256SUMS.txt
 
+      - name: Include changelog for the tagged version
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          changelog="../docs/CHANGELOG-${APP_VERSION}.md"
+          if [[ -s "$changelog" ]]; then
+            cp -- "$changelog" ../dist/RELEASE-NOTES.md
+          fi
+
       - name: Upload verified release files
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -148,7 +158,12 @@ jobs:
           set -euo pipefail
           cd dist
           sha256sum --check SHA256SUMS.txt
-          options=(--draft --verify-tag --generate-notes --title "Lamp-Da $RELEASE_TAG")
+          options=(--draft --verify-tag --title "Lamp-Da $RELEASE_TAG")
+          if [[ -s RELEASE-NOTES.md ]]; then
+            options+=(--notes-file RELEASE-NOTES.md)
+          else
+            options+=(--generate-notes)
+          fi
           if [[ "$RELEASE_TAG" == *-* ]]; then options+=(--prerelease); fi
           gh release create "$RELEASE_TAG" "${options[@]}" ./*.apk SHA256SUMS.txt signature.txt
           printf 'Draft release created for **%s**. Review the notes and publish manually from Releases.\n' \

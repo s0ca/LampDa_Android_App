@@ -43,6 +43,9 @@ Download the latest signed APK from [GitHub Releases](https://github.com/s0ca/La
 The stable app checks GitHub for newer stable releases at launch. Updates are
 downloaded and installed manually; the app still works offline.
 
+Release drafts use `docs/CHANGELOG-<version>.md` from the tagged commit when
+available, and fall back to GitHub's generated notes otherwise.
+
 Development builds are available in GitHub Actions artifacts. They are intended
 for testing and may not update an existing installation.
 
