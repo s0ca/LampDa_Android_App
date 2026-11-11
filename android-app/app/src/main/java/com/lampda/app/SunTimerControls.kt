@@ -109,7 +109,7 @@ internal fun SunTimerControls(
                 }, modifier = Modifier.fillMaxWidth()) { AppText("Ends at %02d:%02d".format(hour, minute)) }
             }
             if (kind == SunTimerKind.Sunrise) {
-                AppText("Sunrise requires the lamp to be off.", style = MaterialTheme.typography.bodySmall,
+                AppText("Plug in the lamp and turn off the light before scheduling Sunrise.", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

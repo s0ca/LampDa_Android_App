@@ -24,6 +24,12 @@ import java.io.ByteArrayOutputStream
 internal data class LocalFirmware(val name: String, val bytes: ByteArray, val metadata: Uf2Metadata)
 internal data class BootVolume(val uri: Uri, val name: String)
 
+internal enum class UsbCopyPhase {
+    Preparing, Copying, Finalizing, Complete, Uncertain;
+
+    val finished get() = this == Complete || this == Uncertain
+}
+
 private fun UsbDevice.lampIdentity() = UsbIdentity(vendorId, productId,
     (0 until interfaceCount).map { getInterface(it).interfaceClass }.toSet())
 
@@ -39,6 +45,7 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
     var report by mutableStateOf(""); private set
     var busy by mutableStateOf(false); private set
     var progress by mutableStateOf(0f); private set
+    var copyPhase by mutableStateOf<UsbCopyPhase?>(null); private set
     var copyAttempted by mutableStateOf(false); private set
     var status by mutableStateOf("Choose a local UF2 file."); private set
     var detection by mutableStateOf(UsbDetection.Empty); private set
@@ -247,6 +254,7 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
         val target = volume ?: error("Select the bootloader USB volume.")
         require(updateLampType == selected.metadata.variant) { "Identify the lamp and check its firmware variant first." }
         progress = 0f
+        copyPhase = UsbCopyPhase.Preparing
         // A failed write can still have programmed part of the application. Never retry automatically.
         copyAttempted = true
         status = "Copying firmware. Do not disconnect USB."
@@ -258,6 +266,7 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
                     ?: error("Cannot create UPDATE.UF2 on the USB volume.")
                 require(outputFile.name.equals("UPDATE.UF2", true)) { "The USB provider changed the destination filename." }
                 app.contentResolver.openOutputStream(outputFile.uri, "w")?.use { output ->
+                    withContext(Dispatchers.Main) { copyPhase = UsbCopyPhase.Copying }
                     var offset = 0
                     while (offset < selected.bytes.size) {
                         val count = minOf(4096, selected.bytes.size - offset)
@@ -265,18 +274,25 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
                         offset += count
                         withContext(Dispatchers.Main) { progress = offset.toFloat() / selected.bytes.size }
                     }
+                    withContext(Dispatchers.Main) { copyPhase = UsbCopyPhase.Finalizing }
                     output.flush()
                 } ?: error("Cannot open the destination file.")
             }
             status = "Copy complete. Reconnect the lamp and read its version to verify the update."
+            copyPhase = UsbCopyPhase.Complete
         } catch (error: Exception) {
             status = "Update outcome uncertain. Do not retry automatically. Reconnect and read the lamp version."
             report = error.message.orEmpty()
+            copyPhase = UsbCopyPhase.Uncertain
         } finally {
             volume = null
             dfuLampType = null
             manualBootloaderType = null
         }
+    }
+
+    fun dismissCopyResult() {
+        if (copyPhase?.finished == true) copyPhase = null
     }
 }
 

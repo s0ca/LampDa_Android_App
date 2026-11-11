@@ -145,7 +145,7 @@
     <string name="ui_end_time">End time</string>
     <string name="ui_minutes_until_end">Minutes until end</string>
     <string name="ui_sync_time">Sync time</string>
-    <string name="ui_sunrise_off">Sunrise requires the lamp to be off.</string>
+    <string name="ui_sunrise_off">Plug in the lamp and turn off the light before scheduling Sunrise.</string>
     <string name="ui_favorites">Lamp favorites</string>
     <string name="ui_recall">Recall</string>
     <string name="ui_save">Save</string>
@@ -318,4 +318,9 @@
     <string name="ui_stop_timer">Stop timer</string>
     <string name="ui_stopping_timer">Stopping timer...</string>
     <string name="ui_timer_stop_unconfirmed">The lamp did not confirm the timer stop.</string>
+    <string name="ui_refresh_lamp_state">Refresh lamp state</string>
+    <string name="ui_refreshing_lamp_state">Refreshing lamp state...</string>
+    <string name="ui_incomplete_lamp_state">The lamp did not return its full state.</string>
+    <string name="ui_firmware_features_unconfirmed">Firmware features not confirmed</string>
+    <string name="ui_firmware_features_confirmed">Confirmed firmware features</string>
 </resources>

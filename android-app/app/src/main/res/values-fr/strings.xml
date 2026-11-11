@@ -145,7 +145,7 @@
     <string name="ui_end_time">Heure de fin</string>
     <string name="ui_minutes_until_end">Minutes avant la fin</string>
     <string name="ui_sync_time">Synchroniser</string>
-    <string name="ui_sunrise_off">Le lever nécessite une lampe éteinte.</string>
+    <string name="ui_sunrise_off">Branche la lampe et éteins la lumière avant de programmer le lever.</string>
     <string name="ui_favorites">Favoris de la lampe</string>
     <string name="ui_recall">Rappeler</string>
     <string name="ui_save">Enregistrer</string>
@@ -318,4 +318,9 @@
     <string name="ui_stop_timer">Arrêter le minuteur</string>
     <string name="ui_stopping_timer">Arrêt en cours...</string>
     <string name="ui_timer_stop_unconfirmed">La lampe n’a pas confirmé l’arrêt du minuteur.</string>
+    <string name="ui_refresh_lamp_state">Actualiser l’état de la lampe</string>
+    <string name="ui_refreshing_lamp_state">Actualisation en cours...</string>
+    <string name="ui_incomplete_lamp_state">La lampe n’a pas renvoyé son état complet.</string>
+    <string name="ui_firmware_features_unconfirmed">Fonctions du firmware non confirmées</string>
+    <string name="ui_firmware_features_confirmed">Fonctions confirmées par la lampe</string>
 </resources>

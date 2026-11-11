@@ -64,6 +64,7 @@ import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.OutlinedButton
@@ -393,7 +394,7 @@ private fun LampScreen(
                     canStopTimer = fleet.active.canStopSunTimer,
                     stoppingTimer = fleet.active.isStoppingSunTimer,
                     onStopTimer = fleet.active::stopSunTimer,
-                    reportedPower = fleet.active.reportedPower,
+                    stateReadback = { StateReadbackControls(fleet.active) },
                     modesExpanded = modesExpanded,
                     onModesToggle = { modesExpanded = !modesExpanded },
                     timerExpanded = timerExpanded,
@@ -636,6 +637,54 @@ private fun UartTab(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StateReadbackControls(lamp: LampBleController) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            AppText(when (lamp.reportedPower) {
+                true -> "Last reported output: On"
+                false -> "Last reported output: Off"
+                null -> "Power state not reported"
+            }, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (lamp.isConnected) {
+                val confirmed = listOfNotNull(
+                    "Output status".takeIf { lamp.supportsOutputStatus },
+                    "Sun timers".takeIf { lamp.supportsSunTimerStop },
+                )
+                AppText(
+                    text = when {
+                        lamp.isRefreshingState -> "Refreshing lamp state..."
+                        lamp.stateRefreshFailed -> "The lamp did not return its full state."
+                        confirmed.isEmpty() -> "Firmware features not confirmed"
+                        else -> "Confirmed firmware features"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (lamp.stateRefreshFailed) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (confirmed.isNotEmpty()) {
+                    Text(confirmed.map { uiString(it) }.joinToString(" / "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary)
+                }
+            }
+        }
+        if (lamp.isConnected) {
+            TooltipBox(
+                positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                tooltip = { PlainTooltip { AppText("Refresh lamp state") } },
+                state = rememberTooltipState(),
+            ) {
+                IconButton(onClick = lamp::refreshState, enabled = lamp.canRefreshState) {
+                    Icon(Icons.Default.Refresh, contentDescription = uiString("Refresh lamp state"))
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ControlTab(
@@ -643,7 +692,7 @@ private fun ControlTab(
     canStopTimer: Boolean,
     stoppingTimer: Boolean,
     onStopTimer: () -> Unit,
-    reportedPower: Boolean?,
+    stateReadback: @Composable () -> Unit,
     modesExpanded: Boolean,
     onModesToggle: () -> Unit,
     timerExpanded: Boolean,
@@ -699,12 +748,7 @@ private fun ControlTab(
                         }
                     }
 
-                    AppText(when (reportedPower) {
-                        true -> "Last reported output: On"
-                        false -> "Last reported output: Off"
-                        null -> "Power state not reported"
-                    }, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    stateReadback()
 
                     ControlSlider(
                         origin = origins.brightness,
@@ -1179,16 +1223,24 @@ internal class LampBleController(private val context: Context) {
         private set
     var reportedPower by mutableStateOf<Boolean?>(null)
         private set
-    private var supportsOutputStatus = false
+    var supportsOutputStatus by mutableStateOf(false)
+        private set
+    private var pendingStateRefresh by mutableStateOf<LampStateRefresh?>(null)
+    val isRefreshingState get() = pendingStateRefresh != null
+    val canRefreshState get() = isConnected && !isRefreshingState &&
+        pendingSunTimer == null && !isStoppingSunTimer
+    var stateRefreshFailed by mutableStateOf(false)
+        private set
     var sunTimerError by mutableStateOf<String?>(null)
         private set
     private data class PendingSunTimer(val kind: SunTimerKind, val endsAt: Long)
     private var pendingSunTimer by mutableStateOf<PendingSunTimer?>(null)
-    private var supportsSunTimerStop by mutableStateOf(false)
+    var supportsSunTimerStop by mutableStateOf(false)
+        private set
     private var pendingSunTimerStop by mutableStateOf<Any?>(null)
     val isStoppingSunTimer get() = pendingSunTimerStop != null
     val canStopSunTimer get() = isConnected && supportsSunTimerStop &&
-        activeSunTimerKind != null && pendingSunTimer == null && !isStoppingSunTimer
+        activeSunTimerKind != null && pendingSunTimer == null && !isStoppingSunTimer && !isRefreshingState
     var batteryLevel by mutableStateOf<Int?>(null)
         private set
     val uartLogs = mutableStateListOf<String>()
@@ -1658,6 +1710,21 @@ internal class LampBleController(private val context: Context) {
         sendUartLine(clockCommand("time", Calendar.getInstance()))
     }
 
+    fun refreshState() {
+        val currentGatt = gatt ?: return
+        if (!canRefreshState || !postConnectSetupDone) return
+        val request = LampStateRefresh()
+        pendingStateRefresh = request
+        stateRefreshFailed = false
+        sendUartLine(Firmware19.StatusQuery)
+        mainHandler.postDelayed({
+            if (gatt == currentGatt && pendingStateRefresh === request) {
+                pendingStateRefresh = null
+                stateRefreshFailed = true
+            }
+        }, 6_000)
+    }
+
     fun startSunTimer(kind: SunTimerKind, targetTime: Calendar? = null) {
         sunTimerError = null
         val currentGatt = gatt
@@ -1669,7 +1736,7 @@ internal class LampBleController(private val context: Context) {
             sunTimerError = "Sunrise is not available on this firmware."
             return
         }
-        if (pendingSunTimer != null || isStoppingSunTimer) {
+        if (pendingSunTimer != null || isStoppingSunTimer || isRefreshingState) {
             sunTimerError = "Waiting for the lamp to confirm the timer."
             return
         }
@@ -1838,6 +1905,8 @@ internal class LampBleController(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     private fun closeGatt() {
+        pendingStateRefresh = null
+        stateRefreshFailed = false
         supportsSunTimerStop = false
         pendingSunTimerStop = null
         reportedPower = null
@@ -2047,8 +2116,10 @@ internal class LampBleController(private val context: Context) {
 
     private fun recordReportedPower(on: Boolean) {
         reportedPower = on
-        if (!supportsOutputStatus) {
-            supportsOutputStatus = true
+        val firstStatus = !supportsOutputStatus
+        supportsOutputStatus = true
+        val refresh = pendingStateRefresh
+        if (if (refresh != null) refresh.receiveStatus() else firstStatus) {
             sendUartLine("sys sun")
         }
     }
@@ -2072,6 +2143,7 @@ internal class LampBleController(private val context: Context) {
     private fun updateSunTimerFromUart(line: String) {
         sunTimerStatus(line)?.let { status ->
             supportsSunTimerStop = true
+            if (pendingStateRefresh?.receiveTimer(status.kind) == true) pendingStateRefresh = null
             if (pendingSunTimer == null && !isStoppingSunTimer) {
                 if (status.remainingSeconds != null) {
                     activeSunTimerKind = status.kind

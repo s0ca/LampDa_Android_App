@@ -5,6 +5,15 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class FirmwareProtocolTest {
+    @Test fun stateRefreshWaitsForStatusAndBothDistinctTimers() {
+        val refresh = LampStateRefresh()
+        assertEquals(false, refresh.receiveTimer(SunTimerKind.Sunrise))
+        assertEquals(true, refresh.receiveStatus())
+        assertEquals(false, refresh.receiveStatus())
+        assertEquals(false, refresh.receiveTimer(SunTimerKind.Sunset))
+        assertEquals(false, refresh.receiveTimer(SunTimerKind.Sunset))
+        assertEquals(true, refresh.receiveTimer(SunTimerKind.Sunrise))
+    }
     @Test fun recognizesSunriseInManuallyRequestedFirmwareHelp() {
         assertEquals(true, Firmware19.advertisesSunrise("58420> set sunrise [hour] [minute]: Set sunrise"))
         assertEquals(false, Firmware19.advertisesSunrise("set sunrise_min [minutes]"))

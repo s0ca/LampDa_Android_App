@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.ViewModelProvider
 
 class FirmwareUpdateActivity : ComponentActivity() {
@@ -189,9 +190,12 @@ private fun FirmwareUpdateScreen(model: UsbFirmwareUpdate, identify: () -> Unit,
             Text(usbLabel("Install firmware", "Installer le firmware"))
         }
         if (installBlocker != null && !model.busy) AppText(installBlocker, style = MaterialTheme.typography.bodySmall)
-        if (model.busy) LinearProgressIndicator(progress = { model.progress }, modifier = Modifier.fillMaxWidth())
+        if (model.busy && model.copyPhase == null) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         // Keep device diagnostics verbatim, as in the UART tab.
         if (model.report.isNotBlank()) SelectionContainer { Text(model.report, style = MaterialTheme.typography.bodySmall) }
+    }
+    model.copyPhase?.let { phase ->
+        FirmwareCopyDialog(phase, model.progress, model.status, model::dismissCopyResult)
     }
     if (confirmDfu || confirmCopy) {
         val copying = confirmCopy
@@ -213,4 +217,40 @@ private fun FirmwareUpdateScreen(model: UsbFirmwareUpdate, identify: () -> Unit,
             OutlinedButton(onClick = { confirmDfu = false; confirmCopy = false }) { Text(usbLabel("Cancel", "Annuler")) }
         })
     }
+}
+
+@Composable
+private fun FirmwareCopyDialog(phase: UsbCopyPhase, progress: Float, status: String, dismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = { if (phase.finished) dismiss() },
+        properties = DialogProperties(dismissOnBackPress = phase.finished, dismissOnClickOutside = false),
+        title = {
+            Text(when (phase) {
+                UsbCopyPhase.Complete -> usbLabel("Copy complete", "Copie terminée")
+                UsbCopyPhase.Uncertain -> usbLabel("Update not verified", "Mise à jour non vérifiée")
+                else -> usbLabel("Firmware update", "Mise à jour du firmware")
+            })
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                when (phase) {
+                    UsbCopyPhase.Preparing -> Text(usbLabel("Preparing the USB volume…", "Préparation du volume USB…"))
+                    UsbCopyPhase.Copying -> Text(usbLabel("Copying UF2", "Copie du fichier UF2") + " · ${(progress * 100).toInt()} %")
+                    UsbCopyPhase.Finalizing -> Text(usbLabel("Finalizing the copy…", "Finalisation de la copie…"))
+                    else -> AppText(status)
+                }
+                if (!phase.finished) {
+                    if (phase == UsbCopyPhase.Copying) {
+                        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                    Text(usbLabel("Keep USB connected.", "Ne débranche pas le câble USB."))
+                }
+            }
+        },
+        confirmButton = {
+            if (phase.finished) Button(onClick = dismiss) { AppText("Done") }
+        },
+    )
 }
