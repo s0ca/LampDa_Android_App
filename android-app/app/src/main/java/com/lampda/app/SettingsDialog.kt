@@ -26,6 +26,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -38,6 +41,7 @@ import android.content.Intent
 import android.content.ActivityNotFoundException
 import android.net.Uri
 import android.widget.Toast
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun SettingsDialog(
@@ -112,6 +116,7 @@ internal fun SettingsDialog(
                     else -> {
                         AppText("Lamp-Da", style = MaterialTheme.typography.titleMedium)
                         AppText("App ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium)
+                        ManualAppUpdateCheck()
                         AppText("Developed by s0ca", style = MaterialTheme.typography.bodyMedium)
                         AppText("Firmware 1.9+ / Nordic UART", style = MaterialTheme.typography.bodyMedium)
                         ProjectSourceLink("App source (GitHub)", ProjectLinks.AppSource)
@@ -121,6 +126,34 @@ internal fun SettingsDialog(
             }
         }
     }, confirmButton = { Button(onClick = onDismiss) { AppText("Done") } })
+}
+
+@Composable
+private fun ManualAppUpdateCheck() {
+    val scope = rememberCoroutineScope()
+    var checking by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<AppUpdateResult?>(null) }
+    TextButton(enabled = !checking, onClick = {
+        checking = true
+        result = null
+        scope.launch {
+            try {
+                result = checkForAppUpdate(BuildConfig.VERSION_NAME.substringBefore('-'))
+            } finally {
+                checking = false
+            }
+        }
+    }) { AppText(if (checking) "Checking for updates..." else "Check for updates") }
+    when (val update = result) {
+        is AppUpdateResult.Available -> {
+            Text("${uiString("App update available")}: ${update.tag}", style = MaterialTheme.typography.bodyMedium)
+            ProjectSourceLink("View release on GitHub", "${ProjectLinks.AppSource}/releases/tag/${update.tag}")
+        }
+        AppUpdateResult.UpToDate -> AppText("No newer stable version", style = MaterialTheme.typography.bodySmall)
+        AppUpdateResult.Unavailable -> AppText("Could not check for updates.", style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error)
+        null -> Unit
+    }
 }
 
 @Composable

@@ -32,32 +32,44 @@ private fun versionParts(version: String): List<Int>? {
     return match.groupValues.drop(1).map { it.toIntOrNull() ?: return null }
 }
 
-internal fun newerStableReleaseTag(installed: String, tag: String): String? {
-    val current = versionParts(installed) ?: return null
-    if (!tag.startsWith("v")) return null
-    val latest = versionParts(tag.removePrefix("v")) ?: return null
-    for (index in current.indices) {
-        if (latest[index] != current[index]) return tag.takeIf { latest[index] > current[index] }
-    }
-    return null
+internal sealed interface AppUpdateResult {
+    data class Available(val tag: String) : AppUpdateResult
+    data object UpToDate : AppUpdateResult
+    data object Unavailable : AppUpdateResult
 }
 
-private suspend fun checkForAppUpdate(installed: String): String? = withContext(Dispatchers.IO) {
-    val connection = URL(LatestReleaseApi).openConnection() as HttpsURLConnection
+internal fun compareStableRelease(installed: String, tag: String): AppUpdateResult {
+    val current = versionParts(installed) ?: return AppUpdateResult.Unavailable
+    if (!tag.startsWith("v")) return AppUpdateResult.Unavailable
+    val latest = versionParts(tag.removePrefix("v")) ?: return AppUpdateResult.Unavailable
+    for (index in current.indices) {
+        if (latest[index] > current[index]) return AppUpdateResult.Available(tag)
+        if (latest[index] < current[index]) return AppUpdateResult.UpToDate
+    }
+    return AppUpdateResult.UpToDate
+}
+
+internal suspend fun checkForAppUpdate(installed: String): AppUpdateResult = withContext(Dispatchers.IO) {
+    var connection: HttpsURLConnection? = null
     try {
+        connection = URL(LatestReleaseApi).openConnection() as HttpsURLConnection
+        connection.useCaches = false
         connection.connectTimeout = 5_000
         connection.readTimeout = 5_000
         connection.setRequestProperty("Accept", "application/vnd.github+json")
-        if (connection.responseCode != 200) return@withContext null
+        connection.setRequestProperty("Cache-Control", "no-cache")
+        if (connection.responseCode != 200) return@withContext AppUpdateResult.Unavailable
         val release = connection.inputStream.bufferedReader(Charsets.UTF_8).use { JSONObject(it.readText()) }
-        if (release.optBoolean("draft") || release.optBoolean("prerelease")) return@withContext null
-        newerStableReleaseTag(installed, release.getString("tag_name"))
+        if (release.optBoolean("draft") || release.optBoolean("prerelease")) {
+            return@withContext AppUpdateResult.Unavailable
+        }
+        compareStableRelease(installed, release.getString("tag_name"))
     } catch (_: IOException) {
-        null
+        AppUpdateResult.Unavailable
     } catch (_: JSONException) {
-        null
+        AppUpdateResult.Unavailable
     } finally {
-        connection.disconnect()
+        connection?.disconnect()
     }
 }
 
@@ -69,7 +81,7 @@ internal fun AppUpdateNotice() {
     var updateTag by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         if (!checked) {
-            updateTag = checkForAppUpdate(BuildConfig.VERSION_NAME)
+            updateTag = (checkForAppUpdate(BuildConfig.VERSION_NAME) as? AppUpdateResult.Available)?.tag
             checked = true
         }
     }

@@ -323,4 +323,8 @@
     <string name="ui_incomplete_lamp_state">La lampe n’a pas renvoyé son état complet.</string>
     <string name="ui_firmware_features_unconfirmed">Fonctions du firmware non confirmées</string>
     <string name="ui_firmware_features_confirmed">Fonctions confirmées par la lampe</string>
+    <string name="ui_check_app_updates">Vérifier les mises à jour</string>
+    <string name="ui_checking_app_updates">Vérification en cours...</string>
+    <string name="ui_no_new_stable_version">Aucune version stable plus récente</string>
+    <string name="ui_app_update_check_failed">Impossible de vérifier les mises à jour.</string>
 </resources>
