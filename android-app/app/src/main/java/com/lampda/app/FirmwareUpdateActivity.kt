@@ -113,6 +113,8 @@ private fun usbLabel(english: String, french: String) =
 private fun FirmwareUpdateScreen(model: UsbFirmwareUpdate, identify: () -> Unit, close: () -> Unit) {
     var confirmDfu by remember { mutableStateOf(false) }
     var confirmCopy by remember { mutableStateOf(false) }
+    var chooseDownload by remember { mutableStateOf(false) }
+    var downloadType by remember { mutableStateOf<LampType?>(null) }
     var correctVariant by remember(model.firmware) { mutableStateOf(false) }
     var bootType by remember(model.volume) { mutableStateOf<LampType?>(null) }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -147,6 +149,12 @@ private fun FirmwareUpdateScreen(model: UsbFirmwareUpdate, identify: () -> Unit,
         AppText(model.status, color = MaterialTheme.colorScheme.tertiary)
         Button(onClick = { filePicker.launch(arrayOf("*/*")) }, enabled = !model.busy) {
             Text(usbLabel("Select UF2 file", "Choisir le fichier UF2"))
+        }
+        OutlinedButton(onClick = {
+            downloadType = model.updateLampType
+            chooseDownload = true
+        }, enabled = !model.busy) {
+            Text(usbLabel("Download from GitHub", "Télécharger depuis GitHub"))
         }
         model.firmware?.let { selected ->
             Text(selected.name, style = MaterialTheme.typography.titleMedium)
@@ -196,6 +204,31 @@ private fun FirmwareUpdateScreen(model: UsbFirmwareUpdate, identify: () -> Unit,
     }
     model.copyPhase?.let { phase ->
         FirmwareCopyDialog(phase, model.progress, model.status, model::dismissCopyResult)
+    }
+    if (chooseDownload) {
+        AlertDialog(
+            onDismissRequest = { chooseDownload = false },
+            title = { Text(usbLabel("Official firmware", "Firmware officiel")) },
+            text = {
+                Column {
+                    Text(usbLabel("Lamp model", "Modèle de lampe"))
+                    LampType.entries.forEach { type ->
+                        FilterChip(selected = downloadType == type, onClick = { downloadType = type },
+                            enabled = model.updateLampType == null || model.updateLampType == type,
+                            label = { AppText(type.label) })
+                    }
+                }
+            },
+            confirmButton = {
+                Button(enabled = downloadType != null && !model.busy, onClick = {
+                    chooseDownload = false
+                    downloadType?.let(model::selectOfficialFirmware)
+                }) { Text(usbLabel("Download", "Télécharger")) }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { chooseDownload = false }) { Text(usbLabel("Cancel", "Annuler")) }
+            },
+        )
     }
     if (confirmDfu || confirmCopy) {
         val copying = confirmCopy

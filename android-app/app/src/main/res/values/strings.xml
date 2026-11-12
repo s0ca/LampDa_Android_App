@@ -327,4 +327,11 @@
     <string name="ui_checking_app_updates">Checking for updates...</string>
     <string name="ui_no_new_stable_version">No newer stable version</string>
     <string name="ui_app_update_check_failed">Could not check for updates.</string>
+    <string name="usb_downloading_official">Downloading official firmware...</string>
+    <string name="usb_official_checked">Official UF2 downloaded and checked.</string>
+    <string name="usb_official_unsupported">Unsupported official firmware release.</string>
+    <string name="usb_official_download_failed">Could not download the official firmware.</string>
+    <string name="usb_official_release_invalid">Could not read the official firmware release.</string>
+    <string name="usb_official_missing">No compatible UF2 with a checksum in the latest release.</string>
+    <string name="usb_official_checksum_mismatch">Official firmware checksum mismatch.</string>
 </resources>

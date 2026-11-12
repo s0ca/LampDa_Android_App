@@ -125,20 +125,27 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
             val name = app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                 ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
                 ?: error("Cannot read the filename.")
-            val bytes = app.contentResolver.openInputStream(uri)?.use { input ->
-                val result = ByteArrayOutputStream()
-                val buffer = ByteArray(8192)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    require(result.size() + read <= LampUf2.MaxFileBytes) { "Invalid or oversized UF2 file." }
-                    result.write(buffer, 0, read)
-                }
-                result.toByteArray()
-            } ?: error("Cannot open the firmware file.")
+            val bytes = app.contentResolver.openInputStream(uri)?.use { it.readFirmwareBytes(LampUf2.MaxFileBytes) }
+                ?: error("Cannot open the firmware file.")
             LocalFirmware(name, bytes, LampUf2.inspect(name, bytes))
         }
         status = "UF2 file checked. Identify the lamp over USB."
+    }
+
+    fun selectOfficialFirmware(type: LampType) = task {
+        status = "Downloading official firmware..."
+        val selected = try {
+            withContext(Dispatchers.IO) { downloadOfficialFirmware(type) }
+        } catch (_: java.io.IOException) {
+            error("Could not download the official firmware.")
+        } catch (_: org.json.JSONException) {
+            error("Could not read the official firmware release.")
+        }
+        volume = null
+        manualBootloaderType = null
+        copyAttempted = false
+        firmware = selected
+        status = "Official UF2 downloaded and checked."
     }
 
     private fun <T> serial(device: UsbDevice, block: (UsbSerialPort) -> T): T {

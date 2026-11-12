@@ -1,7 +1,7 @@
 # Lamp-Da Android
 
 Android companion application for Lamp-Da lamps running the updated official develop firmware.
-Current application version: **0.4.3-beta.1**. Android 8.0 (API 26) or newer.
+Current application version: **0.4.3-beta.2**. Android 8.0 (API 26) or newer.
 
 Beta versions install as **Lamp-Da Beta** (`com.lampda.app.beta`), alongside the
 stable app (`com.lampda.app`). Settings and permissions are separate; existing
@@ -48,6 +48,7 @@ available, and fall back to GitHub's generated notes otherwise.
 
 Development builds are available in GitHub Actions artifacts. They are intended
 for testing and may not update an existing installation.
+Pushes to `beta` also build a debug APK artifact, without creating a release.
 
 ## Known Limitations
 

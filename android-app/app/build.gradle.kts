@@ -3,7 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val appVersion = "0.4.3-beta.1"
+val appVersion = "0.4.3-beta.2"
 val betaApp = appVersion.substringAfter('-', "").startsWith("beta")
 
 android {
@@ -15,7 +15,7 @@ android {
         manifestPlaceholders["appLabel"] = if (betaApp) "Lamp-Da Beta" else "Lamp-Da"
         minSdk = 26
         targetSdk = 35
-        versionCode = 36
+        versionCode = 37
         versionName = appVersion
     }
 
