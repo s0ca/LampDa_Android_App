@@ -17,12 +17,14 @@ import androidx.lifecycle.viewModelScope
 import com.hoho.android.usbserial.driver.CdcAcmSerialDriver
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
 internal data class LocalFirmware(val name: String, val bytes: ByteArray, val metadata: Uf2Metadata)
 internal data class BootVolume(val uri: Uri, val name: String)
+internal enum class UsbAssistStage { OpenVolumePicker, SelectVolume, ConfirmInstall }
 
 internal enum class UsbCopyPhase {
     Preparing, Copying, Finalizing, Complete, Uncertain;
@@ -51,8 +53,11 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
     var detection by mutableStateOf(UsbDetection.Empty); private set
     var usbInventory by mutableStateOf(""); private set
     val hostSupported = app.packageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST)
-    var permissionDeviceId: Int? = null
+    var permissionDeviceId by mutableStateOf<Int?>(null); private set
+    private var assistAfterPermission = false
     private var runtimeId: Int? = null
+    private var assistedBootloaderId: Int? = null
+    var assistStage by mutableStateOf<UsbAssistStage?>(null); private set
 
     fun refreshUsb() {
         val devices = usb.deviceList.values.sortedBy { it.deviceId }
@@ -71,6 +76,11 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
             lampType = null
         }
         if (detection != UsbDetection.Bootloader) manualBootloaderType = null
+        val expected = assistedBootloaderId
+        if (expected != null && !isExpectedUsbBootloader(devices.associate { it.deviceId to it.lampIdentity() }, expected)) {
+            clearAssistedUpdate()
+            status = "Assisted update stopped: the USB bootloader changed or disconnected."
+        }
     }
 
     fun runtimeDevice(): UsbDevice? {
@@ -99,21 +109,29 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
         }
     }
 
-    fun fail(message: String) { status = message }
+    fun fail(message: String) {
+        permissionDeviceId = null
+        assistAfterPermission = false
+        status = message
+    }
 
-    fun requestingPermission(device: UsbDevice) {
+    fun requestingPermission(device: UsbDevice, assisted: Boolean = false) {
         permissionDeviceId = device.deviceId
+        assistAfterPermission = assisted
         status = "Waiting for Android USB permission."
     }
 
     fun permissionResult() {
         val pending = permissionDeviceId ?: return
+        val assisted = assistAfterPermission
         permissionDeviceId = null
+        assistAfterPermission = false
         refreshUsb()
         val device = usb.deviceList.values.firstOrNull { it.deviceId == pending }
         // Verify the actual permission rather than relying solely on broadcast extras.
-        if (device != null && usb.hasPermission(device)) identify(device)
-        else fail("USB permission was denied.")
+        if (device != null && usb.hasPermission(device)) {
+            if (assisted) prepareAssistedUpdate(device) else identify(device)
+        } else fail("USB permission was denied.")
     }
 
     fun selectFile(uri: Uri) = task {
@@ -133,6 +151,11 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
     }
 
     fun selectOfficialFirmware(type: LampType) = task {
+        selectDownloadedFirmware(type)
+        status = "Official UF2 downloaded and checked."
+    }
+
+    private suspend fun selectDownloadedFirmware(type: LampType) {
         status = "Downloading official firmware..."
         val selected = try {
             withContext(Dispatchers.IO) { downloadOfficialFirmware(type) }
@@ -145,7 +168,6 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
         manualBootloaderType = null
         copyAttempted = false
         firmware = selected
-        status = "Official UF2 downloaded and checked."
     }
 
     private fun <T> serial(device: UsbDevice, block: (UsbSerialPort) -> T): T {
@@ -176,14 +198,18 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
     }
 
     fun identify(device: UsbDevice) = task {
+        identifyRuntime(device)
+        status = "Lamp identified. Check the firmware variant before entering DFU."
+    }
+
+    private suspend fun identifyRuntime(device: UsbDevice) {
         status = "Reading lamp type and version over USB."
         report = ""
         lampType = null
         dfuLampType = null
         manualBootloaderType = null
         runtimeId = null
-        require(device.lampIdentity().isLamp &&
-            usb.deviceList.values.any { it.deviceId == device.deviceId }) { "USB lamp unavailable." }
+        require(runtimeDevice()?.deviceId == device.deviceId) { "USB lamp unavailable." }
         val result = withContext(Dispatchers.IO) {
             serial(device) { port ->
                 // Allow the firmware loop to observe DTR before accepting its first command.
@@ -194,10 +220,14 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
         report = result.first + result.second
         lampType = parseUsbLampType(result.first) ?: error("The lamp did not report a supported type over USB.")
         runtimeId = device.deviceId
-        status = "Lamp identified. Check the firmware variant before entering DFU."
     }
 
     fun enterDfu() = task {
+        requestDfu()
+        status = "DFU requested. Select the root of the bootloader USB volume."
+    }
+
+    private suspend fun requestDfu() {
         val selected = firmware ?: error("Choose a local UF2 file.")
         require(selected.metadata.variant == lampType) { "The firmware filename does not match the lamp type." }
         val device = runtimeDevice() ?: error("USB lamp unavailable.")
@@ -209,10 +239,59 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
             serial(device) { port -> port.write("act dfu\r\n".toByteArray(Charsets.US_ASCII), 1500) }
         }
         runtimeId = null
-        status = "DFU requested. Select the root of the bootloader USB volume."
+        lampType = null
     }
 
-    private fun bootRoot(uri: Uri): DocumentFile {
+    fun prepareAssistedUpdate(device: UsbDevice) = task {
+        require(!copyAttempted) { "Verify the lamp before attempting another update." }
+        identifyRuntime(device)
+        val detected = checkNotNull(lampType)
+        selectDownloadedFirmware(detected)
+        status = "Waiting for the USB bootloader..."
+        try {
+            requestDfu()
+            val deadline = android.os.SystemClock.elapsedRealtime() + 20_000
+            while (android.os.SystemClock.elapsedRealtime() < deadline) {
+                val devices = usb.deviceList.values.toList()
+                when (detectUsb(devices.map { it.lampIdentity() })) {
+                    UsbDetection.Bootloader -> {
+                        assistedBootloaderId = devices.single { it.lampIdentity().isBootloader }.deviceId
+                        refreshUsb()
+                        require(assistedBootloaderId != null) { "Assisted update stopped: the USB bootloader changed or disconnected." }
+                        assistStage = UsbAssistStage.OpenVolumePicker
+                        status = "Select the root of the bootloader USB volume."
+                        return@task
+                    }
+                    UsbDetection.MultipleLamps -> error("Connect exactly one Lamp-Da in USB bootloader mode.")
+                    else -> delay(250)
+                }
+            }
+            error("The USB bootloader did not appear. Check the USB connection.")
+        } catch (error: Exception) {
+            clearAssistedUpdate()
+            throw error
+        }
+    }
+
+    fun volumePickerOpened() {
+        if (assistStage == UsbAssistStage.OpenVolumePicker) assistStage = UsbAssistStage.SelectVolume
+    }
+
+    fun cancelAssistedUpdate() {
+        if (busy) return
+        clearAssistedUpdate()
+        status = "Assisted update canceled. No firmware was written."
+    }
+
+    private fun clearAssistedUpdate() {
+        assistStage = null
+        assistedBootloaderId = null
+        volume = null
+        dfuLampType = null
+        manualBootloaderType = null
+    }
+
+    private fun bootRoot(uri: Uri, expectedBootloaderId: Int? = null): DocumentFile {
         require(uri.authority == "com.android.externalstorage.documents" && DocumentsContract.isTreeUri(uri)) {
             "Select a removable USB volume, not phone storage or a cloud folder."
         }
@@ -223,8 +302,13 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
         require(storage.storageVolumes.any { it.isRemovable && it.uuid.equals(id, true) }) {
             "The selected removable volume is unavailable."
         }
-        require(detectUsb(usb.deviceList.values.map { it.lampIdentity() }) == UsbDetection.Bootloader) {
+        val devices = usb.deviceList.values.toList()
+        require(detectUsb(devices.map { it.lampIdentity() }) == UsbDetection.Bootloader) {
             "Connect exactly one Lamp-Da in USB bootloader mode."
+        }
+        require(expectedBootloaderId == null ||
+            isExpectedUsbBootloader(devices.associate { it.deviceId to it.lampIdentity() }, expectedBootloaderId)) {
+            "Assisted update stopped: the USB bootloader changed or disconnected."
         }
         val root = DocumentFile.fromTreeUri(app, uri) ?: error("USB volume unavailable.")
         val info = root.findFile("INFO_UF2.TXT") ?: error("INFO_UF2.TXT was not found on this volume.")
@@ -239,11 +323,17 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
         return root
     }
 
-    fun selectVolume(uri: Uri) = task {
+    fun selectVolume(uri: Uri, assisted: Boolean = false) = task {
+        require((assistStage != null) == assisted) { "Assisted update stopped: the USB bootloader changed or disconnected." }
         volume = null
         manualBootloaderType = null
-        val root = withContext(Dispatchers.IO) { bootRoot(uri) }
+        val expected = assistedBootloaderId
+        val root = withContext(Dispatchers.IO) { bootRoot(uri, expected) }
+        require(expected == null || assistedBootloaderId == expected) {
+            "Assisted update stopped: the USB bootloader changed or disconnected."
+        }
         volume = BootVolume(uri, root.name ?: "USB UF2")
+        if (expected != null) assistStage = UsbAssistStage.ConfirmInstall
         status = "USB volume checked. Ready for confirmation."
     }
 
@@ -255,11 +345,17 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
         status = "Lamp type confirmed manually for this bootloader session."
     }
 
-    fun copyFirmware() = task {
+    fun copyFirmware(assisted: Boolean = false) = task {
+        require((assistStage != null) == assisted) { "Assisted update stopped: the USB bootloader changed or disconnected." }
         require(!copyAttempted) { "Verify the lamp before attempting another update." }
         val selected = firmware ?: error("Choose a local UF2 file.")
         val target = volume ?: error("Select the bootloader USB volume.")
         require(updateLampType == selected.metadata.variant) { "Identify the lamp and check its firmware variant first." }
+        val expected = if (assisted) {
+            require(assistStage == UsbAssistStage.ConfirmInstall)
+            checkNotNull(assistedBootloaderId)
+        } else null
+        clearAssistedUpdate()
         progress = 0f
         copyPhase = UsbCopyPhase.Preparing
         // A failed write can still have programmed part of the application. Never retry automatically.
@@ -267,7 +363,7 @@ internal class UsbFirmwareUpdate(application: Application) : AndroidViewModel(ap
         status = "Copying firmware. Do not disconnect USB."
         try {
             withContext(Dispatchers.IO) {
-                val root = bootRoot(target.uri)
+                val root = bootRoot(target.uri, expected)
                 require(root.findFile("UPDATE.UF2") == null) { "UPDATE.UF2 already exists. No file was overwritten." }
                 val outputFile = root.createFile("application/octet-stream", "UPDATE.UF2")
                     ?: error("Cannot create UPDATE.UF2 on the USB volume.")

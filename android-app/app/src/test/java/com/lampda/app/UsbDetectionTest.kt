@@ -42,6 +42,13 @@ class UsbDetectionTest {
         assertEquals(UsbDetection.MultipleLamps, detectUsb(listOf(lamp, bootloader)))
     }
 
+    @Test fun assistedInstallRequiresTheSameSingleBootloader() {
+        assertEquals(true, isExpectedUsbBootloader(mapOf(12 to bootloader, 8 to other), 12))
+        assertEquals(false, isExpectedUsbBootloader(mapOf(13 to bootloader), 12))
+        assertEquals(false, isExpectedUsbBootloader(mapOf(12 to bootloader, 13 to lamp), 12))
+        assertEquals(false, isExpectedUsbBootloader(mapOf(12 to lamp, 13 to other), 12))
+    }
+
     @Test fun installAcceptsTheVerifiedTypeRetainedThroughDfu() {
         assertNull(usbInstallBlocker(false, LampType.Simple, true, true, LampType.Simple, false))
         assertNull(usbInstallBlocker(false, LampType.Rgb, true, true, LampType.Rgb, false))

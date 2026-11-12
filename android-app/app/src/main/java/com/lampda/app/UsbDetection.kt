@@ -16,6 +16,9 @@ internal fun detectUsb(identities: List<UsbIdentity>): UsbDetection = when {
     else -> UsbDetection.Other
 }
 
+internal fun isExpectedUsbBootloader(devices: Map<Int, UsbIdentity>, expectedId: Int): Boolean =
+    detectUsb(devices.values.toList()) == UsbDetection.Bootloader && devices[expectedId]?.isBootloader == true
+
 internal fun usbInstallBlocker(
     busy: Boolean,
     firmwareType: LampType?,
